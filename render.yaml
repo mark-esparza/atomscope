@@ -5,7 +5,9 @@ services:
     name: atomscope
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    # AtomScope has no dependencies; this just gives Render a non-blank,
+    # always-succeeding build step (prints the Python version).
+    buildCommand: python --version
     startCommand: python server.py
     autoDeploy: true
     healthCheckPath: /
