@@ -17,6 +17,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import datetime
+
+from atomscope import __version__ as ATOMSCOPE_VERSION
 from atomscope import (
     chembl,
     docking,
@@ -85,6 +88,72 @@ def _get_pockets(pdb_id: str) -> list:
             _POCKET_CACHE.pop(next(iter(_POCKET_CACHE)))
         _POCKET_CACHE[pid] = found
     return found
+
+
+def _methods_block(meta, site_label, center, search, ligand=None):
+    """Assemble a reproducibility/methods record for a docking or screening run.
+
+    Follows the docking literature's reporting recommendations: tool version,
+    receptor identity, box definition, grid spacing, scoring model, search
+    settings + random seed, ligand source/flexibility, and prep assumptions.
+    """
+    block = {
+        "tool": f"AtomScope v{ATOMSCOPE_VERSION}",
+        "run_utc": datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%d %H:%M UTC"
+        ),
+        "receptor": {
+            "pdb_id": meta.get("pdb_id"),
+            "title": meta.get("title"),
+            "method": meta.get("experimental_method"),
+            "resolution_A": meta.get("resolution_A"),
+        },
+        "receptor_prep": (
+            "Rigid receptor; protein heavy atoms only — waters, ions, cofactors "
+            "and any existing ligands are excluded from the scoring grid. No "
+            "explicit hydrogens; heavy-atom geometry at implicit pH ~7."
+        ),
+        "site": site_label,
+        "box": {
+            "center": [round(c, 2) for c in center],
+            "edge_A": round(2 * docking.GRID_HALF, 1),
+            "grid_spacing_A": docking.SPACING,
+            "translation_search_A": docking.TRANS_HALF,
+        },
+        "scoring": (
+            "AutoDock-style grid-map empirical score: steric (smoothed "
+            "Lennard-Jones) + hydrogen-bond + hydrophobic channels, "
+            "trilinear-interpolated. Relative units (lower = better) — NOT "
+            "calibrated to kcal/mol."
+        ),
+        "search": {
+            "algorithm": "Monte-Carlo rigid-body, simulated-annealing acceptance",
+            "seeds": search.get("seeds"),
+            "mc_steps": search.get("mc_steps"),
+            "random_seed": search.get("random_seed"),
+        },
+        "interaction_cutoffs_A": {
+            "hydrogen_bond": interactions.HB_MAX,
+            "salt_bridge": interactions.SALT_MAX,
+            "hydrophobic": interactions.HYDRO_MAX,
+            "metal_coordination": interactions.METAL_MAX,
+            "aromatic_centroid": interactions.ARO_CENTROID_MAX,
+        },
+        "disclaimer": (
+            "Research-only. Predicted poses and scores are geometric/empirical "
+            "heuristics from a single static structure; not affinities, not "
+            "clinical guidance. Validate with orthogonal evidence."
+        ),
+    }
+    if ligand is not None:
+        block["ligand"] = {
+            "source": "PubChem",
+            "cid": ligand.get("cid"),
+            "conformer": ligand.get("conformer"),
+            "n_heavy_atoms": ligand.get("n_heavy_atoms"),
+            "flexibility": "rigid (single PubChem 3D conformer)",
+        }
+    return block
 
 
 def _resolve_dock_site(pdb_id, structure, comp_raw, pocket_raw):
@@ -296,6 +365,17 @@ class Handler(BaseHTTPRequestHandler):
                 "pose_pdb": docking.pose_to_pdb(pose, res_name),
                 "profile": profile,
                 "report": summary,
+                "methods": _methods_block(
+                    meta,
+                    site_label,
+                    pose["center"],
+                    pose["search"],
+                    ligand={
+                        "cid": compound.get("cid"),
+                        "conformer": lig["source"],
+                        "n_heavy_atoms": len(lig["atoms"]),
+                    },
+                ),
             }
         )
 
@@ -371,12 +451,19 @@ class Handler(BaseHTTPRequestHandler):
             if "error" not in r:
                 r["rank"] = rank
 
+        methods = _methods_block(
+            _meta,
+            site_label,
+            center,
+            {"seeds": 160, "mc_steps": 40, "random_seed": 0},
+        )
         return self._send_json(
             {
                 "pdb_id": rcsb.normalize_pdb_id(pdb_id),
                 "site": site_label,
                 "count": len(results),
                 "results": results,
+                "methods": methods,
             }
         )
 

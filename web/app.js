@@ -28,6 +28,7 @@ const state = {
   report: null,
   chemical: null,
   dockPose: null,
+  methods: null,
   pockets: [],
   dockSite: null,
   pocketView: null,
@@ -112,6 +113,7 @@ async function loadStructure(pdbId) {
     state.profile = null;
     state.report = null;
     state.dockPose = null;
+    state.methods = null;
     state.pockets = [];
     state.dockSite = null;
     state.pocketView = null;
@@ -302,6 +304,7 @@ async function selectComponent(index) {
     state.profile = data.profile;
     state.report = data.report;
     state.dockPose = null;
+    state.methods = null;
     state.pocketView = null;
     state.dockSite = { type: "comp", index: comp.index, label: comp.label };
     updateDockPocket();
@@ -405,6 +408,7 @@ async function runDock() {
       `/api/dock?pdb=${state.pdbId}&chem=${encodeURIComponent(chem)}&${siteParam}`
     );
     state.dockPose = { pdb: data.pose_pdb, profile: data.profile, report: data.report };
+    state.methods = data.methods;
     renderDocking(data);
     renderReport(data.report, data.profile);
     rebuildScene(false);
@@ -424,6 +428,40 @@ async function runDock() {
   } finally {
     $("#dockBtn").disabled = false;
   }
+}
+
+// Reproducibility / methods block (docking-literature reporting standard).
+function methodsHTML(m) {
+  if (!m) return "";
+  const r = m.receptor || {};
+  const b = m.box || {};
+  const s = m.search || {};
+  const cut = m.interaction_cutoffs_A || {};
+  const row = (k, v) =>
+    v === undefined || v === null || v === ""
+      ? ""
+      : `<tr><td class="mk">${k}</td><td>${escapeHtml(String(v))}</td></tr>`;
+  const lig = m.ligand
+    ? row("Ligand", `PubChem CID ${m.ligand.cid} · ${m.ligand.conformer} conformer · ${m.ligand.n_heavy_atoms} heavy atoms · ${m.ligand.flexibility}`)
+    : "";
+  return `
+    <details class="methods">
+      <summary>Methods &amp; reproducibility</summary>
+      <table class="methods-table">
+        ${row("Tool", m.tool)}
+        ${row("Run", m.run_utc)}
+        ${row("Receptor", [r.pdb_id, r.title].filter(Boolean).join(" — "))}
+        ${row("Experiment", [r.method, r.resolution_A ? r.resolution_A + " Å" : null].filter(Boolean).join(", "))}
+        ${row("Receptor prep", m.receptor_prep)}
+        ${row("Site", m.site)}
+        ${row("Box", `center [${(b.center||[]).join(", ")}] · ${b.edge_A} Å edge · ${b.grid_spacing_A} Å grid · ±${b.translation_search_A} Å search`)}
+        ${row("Scoring", m.scoring)}
+        ${row("Search", `${s.algorithm} · ${s.seeds} seeds × ${s.mc_steps} steps · random seed ${s.random_seed}`)}
+        ${lig}
+        ${row("Interaction cutoffs", `H-bond ≤${cut.hydrogen_bond} · salt ≤${cut.salt_bridge} · hydrophobic ≤${cut.hydrophobic} · metal ≤${cut.metal_coordination} · aromatic ≤${cut.aromatic_centroid} Å`)}
+      </table>
+      <div class="disclaimer" style="margin-top:10px">${m.disclaimer || ""}</div>
+    </details>`;
 }
 
 function renderDocking(data) {
@@ -453,7 +491,8 @@ function renderDocking(data) {
       Docked <b>${data.chemical.name}</b> (CID ${data.chemical.cid}, ${data.chemical.formula || ""})
       into <b>${data.pocket.label}</b>${srcNote}. Black sticks in the 3D viewer show the predicted pose.${rmsdNote}
     </div>
-    ${interactionsHTML(data.profile)}`;
+    ${interactionsHTML(data.profile)}
+    ${methodsHTML(data.methods)}`;
 }
 
 function renderReport(report, profile) {
@@ -531,7 +570,8 @@ function renderScreen(data) {
       <thead><tr><th>Rank</th><th>Chemical</th><th>Formula</th><th>Score</th><th>Per-atom</th><th>H-bonds</th><th>Salt</th><th>Contacts</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div class="hint">Lower score = better predicted fit. “View pose” docks that chemical singly and shows the pose in the 3D viewer.</div>`;
+    <div class="hint">Lower score = better predicted fit. “View pose” docks that chemical singly and shows the pose in the 3D viewer.</div>
+    ${methodsHTML(data.methods)}`;
   c.querySelectorAll(".view-btn").forEach((b) =>
     b.addEventListener("click", () => {
       $("#dockChemInput").value = b.dataset.chem;
@@ -768,6 +808,27 @@ function exportReport() {
   lines.push("HYPOTHESES");
   state.report.hypotheses.forEach((h, i) => lines.push(`  ${i + 1}. ${h}`));
   lines.push("");
+
+  // Methods & reproducibility (present when the report came from a docking run).
+  const mm = state.methods;
+  if (mm) {
+    lines.push("METHODS & REPRODUCIBILITY");
+    lines.push(`  Tool: ${mm.tool}`);
+    lines.push(`  Run: ${mm.run_utc}`);
+    if (mm.receptor)
+      lines.push(`  Receptor: ${[mm.receptor.pdb_id, mm.receptor.title].filter(Boolean).join(" — ")}`);
+    lines.push(`  Receptor prep: ${mm.receptor_prep}`);
+    lines.push(`  Site: ${mm.site}`);
+    if (mm.box)
+      lines.push(`  Box: center [${(mm.box.center||[]).join(", ")}], ${mm.box.edge_A} A edge, ${mm.box.grid_spacing_A} A grid, +/-${mm.box.translation_search_A} A search`);
+    lines.push(`  Scoring: ${mm.scoring}`);
+    if (mm.search)
+      lines.push(`  Search: ${mm.search.algorithm}, ${mm.search.seeds} seeds x ${mm.search.mc_steps} steps, random seed ${mm.search.random_seed}`);
+    if (mm.ligand)
+      lines.push(`  Ligand: PubChem CID ${mm.ligand.cid}, ${mm.ligand.conformer} conformer, ${mm.ligand.n_heavy_atoms} heavy atoms, ${mm.ligand.flexibility}`);
+    lines.push("");
+  }
+
   lines.push(state.report.disclaimer);
 
   const blob = new Blob([lines.join("\n")], { type: "text/plain" });

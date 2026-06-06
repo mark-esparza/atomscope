@@ -344,8 +344,10 @@ def dock_with_grid(grid: Grid, ligand_atoms: list, center,
         "elements": elements,
         "center": [round(c, 2) for c in center],
         "box_half": GRID_HALF,
+        "grid_spacing": SPACING,
+        "translation_half": TRANS_HALF,
         "n_heavy_atoms": len(elements),
-        "search": {"seeds": seeds, "mc_steps": mc_steps},
+        "search": {"seeds": seeds, "mc_steps": mc_steps, "random_seed": seed},
     }
 
 
