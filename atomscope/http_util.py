@@ -17,7 +17,7 @@ DEFAULT_TIMEOUT = 30
 MAX_ATTEMPTS = 4
 _BACKOFF = [0.6, 1.5, 3.0]  # seconds between attempts
 _RETRY_CODES = {408, 429, 500, 502, 503, 504}
-_UA = "AtomScope/0.1 (research tool; +local)"
+_UA = "SnaCleX/0.1 (research tool; +local)"
 
 
 class FetchError(Exception):

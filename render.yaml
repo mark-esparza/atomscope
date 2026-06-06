@@ -1,11 +1,11 @@
-# Render.com blueprint — one-click deploy of AtomScope.
+# Render.com blueprint — one-click deploy of SnaCleX.
 # In Render: New ▸ Blueprint ▸ pick this repo. No build step, no dependencies.
 services:
   - type: web
     name: atomscope
     runtime: python
     plan: free
-    # AtomScope has no dependencies; this just gives Render a non-blank,
+    # SnaCleX has no dependencies; this just gives Render a non-blank,
     # always-succeeding build step (prints the Python version).
     buildCommand: python --version
     startCommand: python server.py

@@ -1,4 +1,4 @@
-"""AtomScope local web server (Python stdlib only).
+"""SnaCleX local web server (Python stdlib only).
 
 Copyright (c) 2026 Mark Esparza. All rights reserved. Proprietary — see LICENSE.
 
@@ -141,7 +141,7 @@ def _methods_block(meta, site_label, center, search, ligand=None):
     settings + random seed, ligand source/flexibility, and prep assumptions.
     """
     block = {
-        "tool": f"AtomScope v{ATOMSCOPE_VERSION}",
+        "tool": f"SnaCleX v{ATOMSCOPE_VERSION}",
         "run_utc": datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%d %H:%M UTC"
         ),
@@ -245,7 +245,7 @@ def _components_json(structure) -> list[dict]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AtomScope/0.1"
+    server_version = "SnaCleX/0.1"
 
     def log_message(self, fmt, *args):  # quieter console
         pass
@@ -567,13 +567,13 @@ def main():
     default_port = int(env_port) if env_port and env_port.isdigit() else 8010
     default_host = "0.0.0.0" if env_port else "127.0.0.1"
 
-    parser = argparse.ArgumentParser(description="AtomScope web server")
+    parser = argparse.ArgumentParser(description="SnaCleX web server")
     parser.add_argument("--port", type=int, default=default_port)
     parser.add_argument("--host", default=default_host)
     args = parser.parse_args()
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"AtomScope running at http://{args.host}:{args.port}")
+    print(f"SnaCleX running at http://{args.host}:{args.port}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

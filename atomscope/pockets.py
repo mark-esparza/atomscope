@@ -1,6 +1,6 @@
 """Geometric pocket / cavity detection (LIGSITE algorithm, pure Python).
 
-Lets AtomScope dock into *apo* structures that have no bound reference ligand.
+Lets SnaCleX dock into *apo* structures that have no bound reference ligand.
 
 Method (LIGSITE, Hendlich et al. 1997):
   1. Lay a cubic grid over the protein.

@@ -5,7 +5,7 @@ Implements the docking literature's recommendation to validate predictions
 against measured actives / orthogonal evidence: when a docked or inspected
 chemical has curated ChEMBL pharmacology, we surface its mechanism of action,
 known targets, best measured potency (Ki/IC50/Kd), and whether any of those
-targets corresponds to the protein currently loaded in AtomScope.
+targets corresponds to the protein currently loaded in SnaCleX.
 
 All calls degrade gracefully to None/partial — ChEMBL coverage is uneven and
 this is optional context, never a hard dependency.

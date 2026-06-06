@@ -1,4 +1,4 @@
-"""AtomScope: single-protein, atomic-level structure & ligand-interaction analyzer.
+"""SnaCleX: single-protein, atomic-level structure & ligand-interaction analyzer.
 
 Copyright (c) 2026 Mark Esparza. All rights reserved. Proprietary — see LICENSE.
 

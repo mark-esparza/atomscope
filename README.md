@@ -1,10 +1,10 @@
-# AtomScope
+# SnaCleX
 
 **Single-protein structure & ligand interaction analyzer — down to the atom.**
 
 A research-only, dependency-free web tool. Load any experimental structure from
 the **RCSB Protein Data Bank**, pick a bound molecule (drug, chemical, ion, or
-metal), and AtomScope computes and visualizes exactly how that molecule contacts
+metal), and SnaCleX computes and visualizes exactly how that molecule contacts
 the protein at the atomic level — hydrogen bonds, hydrophobic packing, salt
 bridges, metal coordination, and aromatic contacts — then cross-references the
 chemical against **PubChem** and **ChEMBL**.
@@ -12,7 +12,7 @@ chemical against **PubChem** and **ChEMBL**.
 > Research-only. Interactions are geometric heuristics computed from experimental
 > coordinates (no explicit hydrogens, no energy minimization). Not for clinical use.
 
-> **Copyright © 2026 Mark Esparza. All rights reserved.** AtomScope is proprietary
+> **Copyright © 2026 Mark Esparza. All rights reserved.** SnaCleX is proprietary
 > software — see [LICENSE](LICENSE). No license to use, copy, modify, or
 > distribute is granted; the source is public for reference only. Third-party
 > components and data sources retain their own terms — see [NOTICE](NOTICE).
@@ -39,7 +39,7 @@ chemical against **PubChem** and **ChEMBL**.
 
 ## Pockets (apo-structure docking)
 
-When a structure has no bound ligand, AtomScope finds cavities with a pure-Python
+When a structure has no bound ligand, SnaCleX finds cavities with a pure-Python
 **LIGSITE** implementation: the protein is placed on a grid, grid points buried
 inside the molecular volume are flagged by scanning 7 directions for
 protein-solvent-protein enclosure, and the buried points are clustered into
@@ -53,7 +53,7 @@ crystallographic ligand).
 
 ## Docking (true pose search)
 
-AutoDock Vina/RDKit won't install cleanly on Windows + Python 3.14, so AtomScope
+AutoDock Vina/RDKit won't install cleanly on Windows + Python 3.14, so SnaCleX
 ships an AutoDock-style **grid-map docker** written in pure Python:
 
 - The ligand's real 3D conformer comes from **PubChem** (`record_type=3d`), so no
@@ -72,7 +72,7 @@ usual docking-success threshold), in ~2 s.
 
 ### Redock RMSD
 When you dock a chemical into the site of an existing crystallographic ligand of
-the same size, AtomScope reports a **nearest-atom RMSD** between the predicted and
+the same size, SnaCleX reports a **nearest-atom RMSD** between the predicted and
 experimental pose — an automatic accuracy readout for redocking validation.
 
 ### Batch virtual screening

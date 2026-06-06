@@ -25,7 +25,7 @@ from .http_util import FetchError, fetch_bytes, fetch_json
 MAX_ALIGN_SEQS = 1200  # cap on homologs used (deep enough for coevolution, bounded)
 COEVO_CONF_MIN = 0.6   # min fraction of top pairs that are spatial contacts to trust the signal
 COEVO_CONTACT_A = 12.0  # CA-CA distance counted as a structural contact
-_UA = "AtomScope/0.1 (research tool; +local)"
+_UA = "SnaCleX/0.1 (research tool; +local)"
 
 AA3TO1 = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C", "GLN": "Q",
