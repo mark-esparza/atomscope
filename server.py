@@ -23,6 +23,7 @@ from atomscope import __version__ as ATOMSCOPE_VERSION
 from atomscope import (
     chembl,
     docking,
+    evolution,
     interactions,
     pdbparse,
     pockets,
@@ -73,6 +74,25 @@ def _load_structure(pdb_id: str):
             _CACHE.pop(next(iter(_CACHE)))
         _CACHE[pid] = entry
     return entry
+
+
+_EVO_CACHE: dict[str, dict] = {}
+
+
+def _get_evolution(pdb_id: str) -> dict | None:
+    pid = rcsb.normalize_pdb_id(pdb_id)
+    if pid in _EVO_CACHE:
+        return _EVO_CACHE[pid]
+    _text, structure, _meta = _load_structure(pid)
+    uniprots = _get_uniprots(pid)
+    evo = evolution.analyze(structure, uniprots)
+    if evo is not None:
+        evo["pocket_conservation"] = evolution.annotate_pockets(
+            evo, _get_pockets(pid)
+        )
+        evo.pop("_cons_by_key", None)  # internal only
+    _EVO_CACHE[pid] = evo
+    return evo
 
 
 _UNIPROT_CACHE: dict[str, list] = {}
@@ -267,6 +287,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._api_chemical(qs)
             if path == "/api/pockets":
                 return self._api_pockets(qs)
+            if path == "/api/evolution":
+                return self._api_evolution(qs)
             if path == "/api/dock":
                 return self._api_dock(qs)
             if path == "/api/screen":
@@ -511,6 +533,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error_json("Missing 'pdb' parameter")
         found = _get_pockets(pdb_id)
         return self._send_json({"pockets": found, "count": len(found)})
+
+    def _api_evolution(self, qs):
+        pdb_id = (qs.get("pdb") or [""])[0]
+        if not pdb_id:
+            return self._send_error_json("Missing 'pdb' parameter")
+        evo = _get_evolution(pdb_id)
+        if evo is None:
+            return self._send_json(
+                {
+                    "available": False,
+                    "reason": "No Pfam family / alignment found for this structure's "
+                    "protein (it may lack a UniProt mapping or Pfam domain).",
+                }
+            )
+        return self._send_json({"available": True, **evo})
 
     def _api_search(self, qs):
         query = (qs.get("q") or [""])[0].strip()

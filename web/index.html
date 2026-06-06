@@ -56,6 +56,7 @@
         <button class="tab" data-tab="viewer">3D Atomic Viewer</button>
         <button class="tab" data-tab="interactions">Interactions</button>
         <button class="tab" data-tab="pockets">Pockets</button>
+        <button class="tab" data-tab="evolution">Evolution</button>
         <button class="tab" data-tab="docking">Docking</button>
         <button class="tab" data-tab="chemical">Chemical</button>
         <button class="tab" data-tab="report">Report</button>
@@ -73,6 +74,7 @@
           <span class="spacer"></span>
           <label class="chk"><input type="checkbox" id="toggleSurface" /> Surface</label>
           <label class="chk"><input type="checkbox" id="toggleLines" checked /> Interaction lines</label>
+          <label class="chk"><input type="checkbox" id="toggleConservation" /> Conservation</label>
           <button id="resetView" class="mini">Reset view</button>
         </div>
         <div id="viewer3d" class="viewer3d"></div>
@@ -88,6 +90,14 @@
           <span class="hint" style="margin:0">Finds geometric cavities (LIGSITE) so you can dock into <b>apo</b> structures with no bound ligand. Takes a few seconds.</span>
         </div>
         <div id="pocketsContent" class="empty">No pockets detected yet. Click “Detect pockets”.</div>
+      </section>
+
+      <section class="panel" data-panel="evolution">
+        <div class="pocket-controls">
+          <button id="evoBtn" class="primary">Analyze conservation</button>
+          <span class="hint" style="margin:0">Fetches the protein's Pfam family alignment and scores each residue &amp; pocket by evolutionary conservation. A few seconds.</span>
+        </div>
+        <div id="evolutionContent" class="empty">No conservation analysis yet. Click “Analyze conservation”.</div>
       </section>
 
       <section class="panel" data-panel="docking">

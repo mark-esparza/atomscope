@@ -32,6 +32,8 @@ const state = {
   pockets: [],
   dockSite: null,
   pocketView: null,
+  evolution: null,
+  colorByConservation: false,
   viewer: null,
   showSurface: false,
   showLines: true,
@@ -117,6 +119,12 @@ async function loadStructure(pdbId) {
     state.pockets = [];
     state.dockSite = null;
     state.pocketView = null;
+    state.evolution = null;
+    state.colorByConservation = false;
+    const evoCb = $("#toggleConservation");
+    if (evoCb) evoCb.checked = false;
+    $("#evolutionContent").className = "empty";
+    $("#evolutionContent").textContent = "No conservation analysis yet. Click “Analyze conservation”.";
 
     renderOverview(data);
     renderComponents(data.components);
@@ -225,6 +233,9 @@ function rebuildScene(resetZoom) {
   // model 0: protein + crystallographic hetero
   v.addModel(state.pdbData, "pdb");
   v.setStyle({}, { cartoon: { color: "#b3b3b3", opacity: 0.85 } });
+  if (state.colorByConservation && state.evolution && state.evolution.residues) {
+    applyConservationColors(v);
+  }
   v.setStyle({ hetflag: true }, { stick: { radius: 0.16, color: "#666666" } });
   v.setStyle({ resn: WATER }, {});
 
@@ -688,6 +699,101 @@ function dockIntoPocket(index) {
   $("#dockChemInput").focus();
 }
 
+// ================= evolution / conservation =================
+async function runEvolution() {
+  if (!state.pdbId) {
+    setStatus("Load a structure first.", "error");
+    return;
+  }
+  switchTab("evolution");
+  setStatus("Fetching the protein's Pfam family alignment and scoring conservation…", "busy");
+  $("#evoBtn").disabled = true;
+  try {
+    const data = await getJSON(`/api/evolution?pdb=${state.pdbId}`);
+    if (!data.available) {
+      state.evolution = null;
+      $("#evolutionContent").className = "empty";
+      $("#evolutionContent").textContent = data.reason || "No conservation data available.";
+      setStatus("No Pfam family / alignment found for this structure.", "error");
+      return;
+    }
+    state.evolution = data;
+    renderEvolution(data);
+    setStatus(
+      `Conservation from ${data.n_sequences} Pfam homologs (${data.pfam}); ` +
+        `${Math.round(data.coverage * 100)}% of residues mapped.`
+    );
+  } catch (err) {
+    setStatus(`Conservation analysis failed: ${err.message}`, "error");
+  } finally {
+    $("#evoBtn").disabled = false;
+  }
+}
+
+function cellEvo(k, v) {
+  return `<div class="meta-cell"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+}
+
+function renderEvolution(d) {
+  const c = $("#evolutionContent");
+  c.className = "";
+  const top = d.top_conserved
+    .map((r) => `<span class="res-chip"><b>${r.res}</b> <span class="rd">${r.conservation}</span></span>`)
+    .join("");
+  const pk = (d.pocket_conservation || [])
+    .map(
+      (p) => `<tr>
+        <td>#${p.index + 1}</td>
+        <td>${p.tier || "—"}</td>
+        <td>${p.volume_A3} Å³</td>
+        <td>${p.mean_conservation == null ? "—" : p.mean_conservation}</td>
+        <td>${p.label}</td>
+      </tr>`
+    )
+    .join("");
+  c.innerHTML = `
+    <div class="meta-grid">
+      ${cellEvo("Pfam family", d.pfam + " — " + (d.family_name || ""))}
+      ${cellEvo("Homologs", d.n_sequences)}
+      ${cellEvo("Residues mapped", `${d.mapped_residues} / ${d.target_length} (${Math.round(d.coverage * 100)}%)`)}
+      ${cellEvo("UniProt", d.uniprot || "—")}
+    </div>
+    <button id="evoColorBtn" class="primary" style="margin:16px 0">Color structure by conservation →</button>
+    <div class="section-h">Most conserved residues</div>
+    <div class="res-chips">${top}</div>
+    <div class="section-h">Pocket conservation</div>
+    <table class="data">
+      <thead><tr><th>Pocket</th><th>Tier</th><th>Volume</th><th>Mean conservation</th><th>Assessment</th></tr></thead>
+      <tbody>${pk || `<tr><td colspan="5">No pockets.</td></tr>`}</tbody>
+    </table>
+    <div class="disclaimer">Conservation is a family-MSA signal (Shannon entropy across ${d.n_sequences} Pfam homologs, 0 = variable, 1 = invariant) — not phylogenetic ancestral reconstruction. Conserved pocket-lining residues suggest functional importance.</div>`;
+  $("#evoColorBtn").addEventListener("click", () => {
+    state.colorByConservation = true;
+    const cb = $("#toggleConservation");
+    if (cb) cb.checked = true;
+    rebuildScene(false);
+    switchTab("viewer");
+  });
+}
+
+function applyConservationColors(v) {
+  const groups = {};
+  state.evolution.residues.forEach((r) => {
+    const c = r.conservation;
+    let shade;
+    if (c == null) shade = "#e2e2e2";
+    else if (c >= 0.7) shade = "#1a1a1a";
+    else if (c >= 0.5) shade = "#555555";
+    else if (c >= 0.3) shade = "#999999";
+    else shade = "#cccccc";
+    const key = r.chain + "|" + shade;
+    (groups[key] = groups[key] || { chain: r.chain, shade, resi: [] }).resi.push(r.res_seq);
+  });
+  Object.values(groups).forEach((g) =>
+    v.setStyle({ chain: g.chain, resi: g.resi }, { cartoon: { color: g.shade } })
+  );
+}
+
 // ================= chemical lookup =================
 async function lookupChemical(q) {
   q = (q || "").trim();
@@ -938,6 +1044,16 @@ function init() {
     if (e.key === "Enter") lookupChemical($("#chemInput").value);
   });
   $("#detectBtn").addEventListener("click", detectPockets);
+  $("#evoBtn").addEventListener("click", runEvolution);
+  $("#toggleConservation").addEventListener("change", (e) => {
+    if (e.target.checked && !state.evolution) {
+      e.target.checked = false;
+      runEvolution();
+      return;
+    }
+    state.colorByConservation = e.target.checked;
+    rebuildScene(false);
+  });
   $("#dockBtn").addEventListener("click", runDock);
   $("#dockChemInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") runDock();
