@@ -2,7 +2,7 @@
 # In Render: New ▸ Blueprint ▸ pick this repo. No build step, no dependencies.
 services:
   - type: web
-    name: atomscope
+    name: snaclex
     runtime: python
     plan: free
     # SnaCleX has no dependencies; this just gives Render a non-blank,

@@ -135,7 +135,7 @@ request after a pause may take ~30 s to wake.
 
 ```
 server.py              stdlib HTTP server + JSON API
-atomscope/
+snaclex/
   http_util.py         urllib helpers
   rcsb.py              PDB structure + metadata + search
   pubchem.py           compound lookup + Lipinski

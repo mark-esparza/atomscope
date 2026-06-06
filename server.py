@@ -22,8 +22,8 @@ from urllib.parse import parse_qs, urlparse
 
 import datetime
 
-from atomscope import __version__ as ATOMSCOPE_VERSION
-from atomscope import (
+from snaclex import __version__ as SNACLEX_VERSION
+from snaclex import (
     chembl,
     docking,
     evolution,
@@ -34,7 +34,7 @@ from atomscope import (
     rcsb,
     report,
 )
-from atomscope.http_util import FetchError
+from snaclex.http_util import FetchError
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
@@ -141,7 +141,7 @@ def _methods_block(meta, site_label, center, search, ligand=None):
     settings + random seed, ligand source/flexibility, and prep assumptions.
     """
     block = {
-        "tool": f"SnaCleX v{ATOMSCOPE_VERSION}",
+        "tool": f"SnaCleX v{SNACLEX_VERSION}",
         "run_utc": datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%d %H:%M UTC"
         ),
