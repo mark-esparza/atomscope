@@ -37,6 +37,13 @@ _AA = "ACDEFGHIKLMNPQRSTVWY"
 _LOG20 = math.log2(20)
 
 
+# ---------------- orchestration helpers ----------------
+
+def _unavailable(reason: str) -> dict:
+    """Structured 'no conservation available' result with a specific reason."""
+    return {"available": False, "reason": reason}
+
+
 # ---------------- alignment acquisition ----------------
 
 def pfam_for_uniprot(accession: str) -> dict | None:
@@ -56,24 +63,31 @@ def fetch_family_alignment(pfam_id: str) -> list[tuple]:
     """Return [(name, aligned_seq)] homologs for a Pfam family.
 
     Streams the *full* alignment (deep enough for coevolution) but stops after
-    MAX_ALIGN_SEQS sequences to bound time/memory. Falls back to the small seed
-    alignment if streaming the full one fails.
+    MAX_ALIGN_SEQS sequences to bound time/memory. For small families the full
+    alignment may have only a few dozen sequences; we still use it (it is always
+    >= the seed), and only fetch the seed as a fallback when the full stream
+    fails or is empty. Returns whichever alignment has more sequences.
     """
+    full = []
     try:
-        aln = _stream_alignment(pfam_id, "alignment:full", MAX_ALIGN_SEQS)
-        if len(aln) >= 50:
-            return _modal_width(aln)
+        full = _modal_width(_stream_alignment(pfam_id, "alignment:full", MAX_ALIGN_SEQS))
     except (FetchError, OSError, urllib.error.URLError, TimeoutError):
-        pass
-    try:
-        raw = fetch_bytes(
-            f"https://www.ebi.ac.uk/interpro/wwwapi/entry/pfam/{pfam_id}/"
-            "?annotation=alignment:seed"
-        )
-        text = gzip.decompress(raw).decode("utf-8", "replace")
-        return _modal_width(_parse_stockholm(text.splitlines()))
-    except (FetchError, OSError, EOFError):
-        return []
+        full = []
+
+    # Only spend a second on the seed if the full alignment was small/missing.
+    seed = []
+    if len(full) < 50:
+        try:
+            raw = fetch_bytes(
+                f"https://www.ebi.ac.uk/interpro/wwwapi/entry/pfam/{pfam_id}/"
+                "?annotation=alignment:seed"
+            )
+            text = gzip.decompress(raw).decode("utf-8", "replace")
+            seed = _modal_width(_parse_stockholm(text.splitlines()))
+        except (FetchError, OSError, EOFError):
+            seed = []
+
+    return full if len(full) >= len(seed) else seed
 
 
 def _stream_alignment(pfam_id: str, kind: str, max_seqs: int) -> list[tuple]:
@@ -228,22 +242,39 @@ def _nw_align(a: str, b: str):
 
 def analyze(structure, uniprots: list[str]) -> dict | None:
     """Full conservation analysis for a loaded structure. None if unavailable."""
+    if not uniprots:
+        return _unavailable(
+            "This structure has no UniProt mapping (common for designed, "
+            "synthetic, engineered, or peptide-only entries), so no protein "
+            "family could be retrieved for conservation analysis."
+        )
+
     fam = None
     acc_used = None
-    for acc in uniprots or []:
+    for acc in uniprots:
         fam = pfam_for_uniprot(acc)
         if fam and fam.get("pfam"):
             acc_used = acc
             break
     if not fam or not fam.get("pfam"):
-        return None
+        return _unavailable(
+            f"No Pfam family is associated with this protein (UniProt "
+            f"{', '.join(uniprots)}), so there is no family alignment to analyze. "
+            f"This happens for novel folds and some short or unclassified proteins."
+        )
 
     try:
         alignment = fetch_family_alignment(fam["pfam"])
     except FetchError:
-        return None
+        return _unavailable(
+            f"Could not retrieve the family alignment for Pfam {fam['pfam']} "
+            f"(the alignment service may be temporarily unavailable — try again)."
+        )
     if len(alignment) < 5:
-        return None
+        return _unavailable(
+            f"This protein's family (Pfam {fam['pfam']}) has too few aligned "
+            f"homologs ({len(alignment)}) for a meaningful conservation analysis."
+        )
 
     cons, consensus, occ = column_conservation(alignment)
     # Core columns = reasonably occupied positions.
@@ -251,11 +282,17 @@ def analyze(structure, uniprots: list[str]) -> dict | None:
     core_consensus = "".join(consensus[i] for i in core_cols)
     core_cons = [cons[i] for i in core_cols]
     if not core_consensus:
-        return None
+        return _unavailable(
+            f"The family alignment (Pfam {fam['pfam']}) had no well-occupied "
+            f"columns to score — the homolog set may be too sparse."
+        )
 
     target_seq, keys = structure_sequence(structure)
     if not target_seq:
-        return None
+        return _unavailable(
+            "Could not extract a protein sequence from this structure "
+            "(it may contain no standard amino-acid chain)."
+        )
 
     pairs = _nw_align(target_seq, core_consensus)
     residues = []

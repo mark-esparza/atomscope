@@ -89,13 +89,16 @@ def _get_evolution(pdb_id: str) -> dict | None:
     _text, structure, _meta = _load_structure(pid)
     uniprots = _get_uniprots(pid)
     evo = evolution.analyze(structure, uniprots)
-    if evo is not None:
-        evo["pocket_conservation"] = evolution.annotate_pockets(
-            evo, _get_pockets(pid)
-        )
-        evo.pop("_cons_by_key", None)     # internal only
-        evo.pop("_hub_keys", None)        # internal only
-        evo.pop("_divergent_keys", None)  # internal only
+    if evo is None or evo.get("available") is False:
+        _EVO_CACHE[pid] = evo or {
+            "available": False,
+            "reason": "Conservation analysis is unavailable for this structure.",
+        }
+        return _EVO_CACHE[pid]
+    evo["pocket_conservation"] = evolution.annotate_pockets(evo, _get_pockets(pid))
+    evo.pop("_cons_by_key", None)     # internal only
+    evo.pop("_hub_keys", None)        # internal only
+    evo.pop("_divergent_keys", None)  # internal only
     _EVO_CACHE[pid] = evo
     return evo
 
@@ -544,13 +547,9 @@ class Handler(BaseHTTPRequestHandler):
         if not pdb_id:
             return self._send_error_json("Missing 'pdb' parameter")
         evo = _get_evolution(pdb_id)
-        if evo is None:
+        if evo is None or evo.get("available") is False:
             return self._send_json(
-                {
-                    "available": False,
-                    "reason": "No Pfam family / alignment found for this structure's "
-                    "protein (it may lack a UniProt mapping or Pfam domain).",
-                }
+                evo or {"available": False, "reason": "Conservation analysis unavailable."}
             )
         return self._send_json({"available": True, **evo})
 
