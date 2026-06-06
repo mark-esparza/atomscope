@@ -34,6 +34,7 @@ const state = {
   pocketView: null,
   evolution: null,
   colorByConservation: false,
+  showCoupling: false,
   viewer: null,
   showSurface: false,
   showLines: true,
@@ -121,6 +122,7 @@ async function loadStructure(pdbId) {
     state.pocketView = null;
     state.evolution = null;
     state.colorByConservation = false;
+    state.showCoupling = false;
     const evoCb = $("#toggleConservation");
     if (evoCb) evoCb.checked = false;
     $("#evolutionContent").className = "empty";
@@ -279,6 +281,27 @@ function rebuildScene(resetZoom) {
     p.lining_residues.forEach((rr) =>
       v.addStyle({ chain: rr.chain, resi: rr.res_seq }, { stick: { radius: 0.12, color: "#808080" } })
     );
+  }
+
+  // coevolution network: lines between co-evolving residue pairs + hub sticks
+  if (state.showCoupling && state.evolution && state.evolution.coupling_reliable) {
+    state.evolution.coupling_pairs.forEach((p) => {
+      if (p.xyz_i && p.xyz_j) {
+        v.addCylinder({
+          start: xyz(p.xyz_i),
+          end: xyz(p.xyz_j),
+          radius: 0.1,
+          color: 0x444444,
+          fromCap: 1,
+          toCap: 1,
+        });
+      }
+    });
+    state.evolution.coupling_hubs.forEach((h) => {
+      const resi = parseInt(String(h.res).replace(/\D/g, ""), 10);
+      if (!isNaN(resi))
+        v.addStyle({ chain: h.chain, resi }, { stick: { radius: 0.2, color: "#000000" } });
+    });
   }
 
   if (state.showSurface) {
@@ -706,7 +729,7 @@ async function runEvolution() {
     return;
   }
   switchTab("evolution");
-  setStatus("Fetching the protein's Pfam family alignment and scoring conservation…", "busy");
+  setStatus("Fetching the Pfam family alignment, scoring conservation and computing coevolution — up to ~30s…", "busy");
   $("#evoBtn").disabled = true;
   try {
     const data = await getJSON(`/api/evolution?pdb=${state.pdbId}`);
@@ -761,6 +784,7 @@ function renderEvolution(d) {
     <button id="evoColorBtn" class="primary" style="margin:16px 0">Color structure by conservation →</button>
     <div class="section-h">Most conserved residues</div>
     <div class="res-chips">${top}</div>
+    ${coevolutionHTML(d)}
     <div class="section-h">Pocket conservation</div>
     <table class="data">
       <thead><tr><th>Pocket</th><th>Tier</th><th>Volume</th><th>Mean conservation</th><th>Assessment</th></tr></thead>
@@ -774,6 +798,45 @@ function renderEvolution(d) {
     rebuildScene(false);
     switchTab("viewer");
   });
+  const netBtn = $("#netBtn");
+  if (netBtn)
+    netBtn.addEventListener("click", () => {
+      state.showCoupling = true;
+      rebuildScene(false);
+      switchTab("viewer");
+    });
+}
+
+function coevolutionHTML(d) {
+  const conf = Math.round((d.coupling_confidence || 0) * 100);
+  if (!d.coupling_reliable) {
+    return `
+      <div class="section-h">Evolutionary coupling (MIp)</div>
+      <div class="pharm-match miss">Coevolution signal is too weak to trust for this family — only ${conf}% of the top co-evolving pairs are spatial contacts in this structure (a deeper / more divergent alignment is needed). Network and allosteric flags are suppressed rather than shown as noise.</div>`;
+  }
+  const hubs = d.coupling_hubs
+    .map((h) => `<span class="res-chip"><b>${h.res}</b> <span class="rd">deg ${h.degree}</span></span>`)
+    .join("");
+  const pairs = d.coupling_pairs
+    .slice(0, 15)
+    .map(
+      (p) => `<tr>
+        <td>${p.res_i} – ${p.res_j}</td>
+        <td>${p.mip}</td>
+        <td>${p.distance_A == null ? "—" : p.distance_A + " Å"}</td>
+      </tr>`
+    )
+    .join("");
+  return `
+    <div class="section-h">Evolutionary coupling (MIp) — confidence ${conf}%</div>
+    <div class="hint" style="margin-top:0">${conf}% of top co-evolving pairs are spatial contacts here, so the signal is trusted. Co-evolving residue networks frequently mark functional or allosteric couplings (the EVcouplings/Gremlin idea, approximated by APC-corrected mutual information).</div>
+    <button id="netBtn" class="primary" style="margin:12px 0">Show coevolution network in 3D →</button>
+    <div class="section-h">Coupling hubs</div>
+    <div class="res-chips">${hubs || "—"}</div>
+    <table class="data" style="margin-top:10px">
+      <thead><tr><th>Co-evolving pair</th><th>MIp</th><th>CA–CA distance</th></tr></thead>
+      <tbody>${pairs}</tbody>
+    </table>`;
 }
 
 function applyConservationColors(v) {

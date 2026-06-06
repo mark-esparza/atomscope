@@ -91,6 +91,7 @@ def _get_evolution(pdb_id: str) -> dict | None:
             evo, _get_pockets(pid)
         )
         evo.pop("_cons_by_key", None)  # internal only
+        evo.pop("_hub_keys", None)     # internal only
     _EVO_CACHE[pid] = evo
     return evo
 
