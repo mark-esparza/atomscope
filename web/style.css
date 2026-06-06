@@ -113,11 +113,15 @@ button:disabled { opacity: 0.5; cursor: progress; }
 .search-block summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
 .search-results { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .search-results .sr {
-  display: flex; justify-content: space-between; gap: 8px;
-  padding: 7px 9px; background: var(--soft); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 8px 10px; background: var(--soft); border: 1px solid var(--line);
   border-radius: var(--radius); cursor: pointer; font-size: 13px;
 }
-.search-results .sr:hover { border-color: var(--ink); }
+.search-results .sr:hover { border-color: var(--ink); background: #eee; }
+.sr-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.sr-id { font-weight: 700; font-family: monospace; font-size: 13.5px; }
+.sr-org { color: var(--muted); font-size: 11px; font-style: italic; text-align: right; }
+.sr-title { color: var(--muted); font-size: 12px; line-height: 1.35; }
 
 /* ---------- component list ---------- */
 .component-list { display: flex; flex-direction: column; gap: 8px; }

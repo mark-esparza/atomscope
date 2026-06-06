@@ -75,4 +75,43 @@ def search_by_name(query: str, limit: int = 10) -> list[dict]:
     results = []
     for item in data.get("result_set", []):
         results.append({"pdb_id": item.get("identifier"), "score": item.get("score")})
+
+    # Enrich with title + organism in a single batched GraphQL call.
+    try:
+        summaries = fetch_entry_summaries([r["pdb_id"] for r in results])
+        for r in results:
+            s = summaries.get(r["pdb_id"], {})
+            r["title"] = s.get("title")
+            r["organism"] = s.get("organism")
+    except FetchError:
+        pass  # search still works without the enrichment
     return results
+
+
+def fetch_entry_summaries(ids: list[str]) -> dict:
+    """Batch-fetch {pdb_id: {title, organism}} for several entries at once."""
+    if not ids:
+        return {}
+    import urllib.parse
+
+    id_list = ",".join(f'"{i}"' for i in ids)
+    query = (
+        "{entries(entry_ids:[" + id_list + "])"
+        "{rcsb_id struct{title} "
+        "polymer_entities{rcsb_entity_source_organism{ncbi_scientific_name}}}}"
+    )
+    url = "https://data.rcsb.org/graphql?query=" + urllib.parse.quote(query)
+    data = fetch_json(url)
+
+    out: dict[str, dict] = {}
+    for e in (data.get("data", {}).get("entries") or []):
+        rid = e.get("rcsb_id")
+        title = (e.get("struct") or {}).get("title")
+        organism = None
+        for pe in e.get("polymer_entities") or []:
+            srcs = pe.get("rcsb_entity_source_organism") or []
+            if srcs and srcs[0].get("ncbi_scientific_name"):
+                organism = srcs[0]["ncbi_scientific_name"]
+                break
+        out[rid] = {"title": title, "organism": organism}
+    return out

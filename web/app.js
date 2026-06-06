@@ -44,6 +44,12 @@ const el = (tag, cls, html) => {
   if (html !== undefined) e.innerHTML = html;
   return e;
 };
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
 function setStatus(msg, kind) {
   const bar = $("#statusBar");
   bar.className = "status-bar" + (kind ? " " + kind : "");
@@ -711,9 +717,16 @@ async function searchPDB(q) {
       box.innerHTML = `<div class="hint">No matches.</div>`;
       return;
     }
-    box.innerHTML = "";
+    box.innerHTML = `<div class="hint" style="margin:0 0 6px">${data.results.length} match(es) — click one to load:</div>`;
     data.results.forEach((r) => {
-      const row = el("div", "sr", `<span>${r.pdb_id}</span><span style="color:var(--muted)">↵ load</span>`);
+      const title = r.title ? escapeHtml(r.title) : "(no title)";
+      const org = r.organism ? escapeHtml(r.organism) : "";
+      const row = el(
+        "div",
+        "sr",
+        `<div class="sr-top"><span class="sr-id">${r.pdb_id}</span><span class="sr-org">${org}</span></div>
+         <div class="sr-title">${title}</div>`
+      );
       row.addEventListener("click", () => {
         $("#pdbInput").value = r.pdb_id;
         loadStructure(r.pdb_id);
