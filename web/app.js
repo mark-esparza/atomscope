@@ -1,0 +1,799 @@
+"use strict";
+
+// ---------- interaction line shades (grayscale, no hue) ----------
+const COLORS = {
+  hydrogen_bond: 0x222222,
+  hydrophobic: 0x999999,
+  salt_bridge: 0x555555,
+  metal_coordination: 0x000000,
+  aromatic: 0x777777,
+};
+const TYPE_LABEL = {
+  hydrogen_bond: "H-bond",
+  hydrophobic: "Hydrophobic",
+  salt_bridge: "Salt bridge",
+  metal_coordination: "Metal",
+  aromatic: "Aromatic",
+};
+const WATER = ["HOH", "WAT", "DOD", "H2O", "SOL"];
+
+// ---------- app state ----------
+const state = {
+  pdbId: null,
+  pdbData: null,
+  meta: null,
+  components: [],
+  selectedComp: null,
+  profile: null,
+  report: null,
+  chemical: null,
+  dockPose: null,
+  pockets: [],
+  dockSite: null,
+  pocketView: null,
+  viewer: null,
+  showSurface: false,
+  showLines: true,
+};
+
+// ---------- dom helpers ----------
+const $ = (sel) => document.querySelector(sel);
+const el = (tag, cls, html) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+};
+function setStatus(msg, kind) {
+  const bar = $("#statusBar");
+  bar.className = "status-bar" + (kind ? " " + kind : "");
+  bar.innerHTML = kind === "busy" ? `<span class="spinner"></span>${msg}` : msg;
+}
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.classList.toggle("active", t.dataset.tab === name)
+  );
+  document.querySelectorAll(".panel").forEach((p) =>
+    p.classList.toggle("active", p.dataset.panel === name)
+  );
+  if (name === "viewer" && state.viewer) {
+    setTimeout(() => {
+      state.viewer.resize();
+      state.viewer.render();
+    }, 30);
+  }
+}
+
+async function getJSON(url) {
+  const resp = await fetch(url);
+  const data = await resp.json();
+  if (!resp.ok || data.error) throw new Error(data.error || `HTTP ${resp.status}`);
+  return data;
+}
+
+// ================= structure loading =================
+async function loadStructure(pdbId) {
+  pdbId = (pdbId || "").trim().toUpperCase();
+  if (!/^[0-9A-Z]{4}$/.test(pdbId)) {
+    setStatus("PDB IDs are 4 characters, e.g. 1HSG.", "error");
+    return;
+  }
+  setStatus(`Fetching ${pdbId} from RCSB and parsing atoms…`, "busy");
+  $("#loadBtn").disabled = true;
+  try {
+    const data = await getJSON(`/api/analyze?pdb=${pdbId}`);
+    state.pdbId = pdbId;
+    state.pdbData = data.pdb_data;
+    state.meta = data.metadata;
+    state.components = data.components;
+    state.selectedComp = null;
+    state.profile = null;
+    state.report = null;
+    state.dockPose = null;
+    state.pockets = [];
+    state.dockSite = null;
+    state.pocketView = null;
+
+    renderOverview(data);
+    renderComponents(data.components);
+    updateDockPocket();
+    $("#pocketsContent").className = "empty";
+    $("#pocketsContent").textContent = "No pockets detected yet. Click “Detect pockets”.";
+    initViewer(data.pdb_data);
+    switchTab("overview");
+
+    const ligCount = data.components.filter((c) => c.kind === "ligand").length;
+    setStatus(
+      `Loaded ${pdbId}: ${data.protein_atom_count} protein atoms, ` +
+        `${data.components.length} bound component(s) (${ligCount} ligand-like). ` +
+        `Pick a molecule on the left to profile interactions.`
+    );
+  } catch (err) {
+    setStatus(`Could not load ${pdbId}: ${err.message}`, "error");
+  } finally {
+    $("#loadBtn").disabled = false;
+  }
+}
+
+function renderOverview(data) {
+  const m = data.meta || data.metadata || {};
+  const c = $("#overviewContent");
+  c.className = "";
+  const cell = (k, v) =>
+    `<div class="meta-cell"><div class="k">${k}</div><div class="v">${
+      v ?? "—"
+    }</div></div>`;
+  c.innerHTML = `
+    <div class="title-block">
+      <h3>${m.title || "Untitled structure"}</h3>
+      <span class="pdbid">PDB ${m.pdb_id}</span>
+    </div>
+    <div class="meta-grid">
+      ${cell("Method", m.experimental_method)}
+      ${cell("Resolution", m.resolution_A ? m.resolution_A + " Å" : "—")}
+      ${cell("Released", m.deposited ? m.deposited.slice(0, 10) : "—")}
+      ${cell("Protein chains", data.chains ? data.chains.join(", ") : "—")}
+      ${cell("Protein atoms", data.protein_atom_count)}
+      ${cell("Bound components", data.components.length)}
+      ${cell("Mol. weight", m.molecular_weight_kDa ? m.molecular_weight_kDa + " kDa" : "—")}
+      ${cell("Deposited atoms", m.deposited_atom_count)}
+    </div>`;
+}
+
+function renderComponents(components) {
+  const card = $("#componentCard");
+  const list = $("#componentList");
+  list.innerHTML = "";
+  if (!components.length) {
+    card.hidden = false;
+    list.innerHTML = `<p class="hint">No bound ligands, ions, or metals in this structure (apo). Try 1HSG or 1CA2.</p>`;
+    return;
+  }
+  card.hidden = false;
+  components.forEach((comp) => {
+    const row = el("div", "comp");
+    row.dataset.index = comp.index;
+    row.innerHTML = `
+      <span class="tag ${comp.kind}">${comp.kind}</span>
+      <div>
+        <div class="comp-label">${comp.res_name}</div>
+        <div class="comp-sub">${comp.chain}/${comp.res_seq} · ${comp.atom_count} atoms</div>
+      </div>`;
+    row.addEventListener("click", () => selectComponent(comp.index));
+    list.appendChild(row);
+  });
+}
+
+// ================= 3D viewer =================
+function initViewer(pdbData) {
+  const host = $("#viewer3d");
+  host.innerHTML = "";
+  state.viewer = $3Dmol.createViewer(host, { backgroundColor: "#ffffff" });
+  rebuildScene(true);
+}
+
+function xyz(arr) {
+  return { x: arr[0], y: arr[1], z: arr[2] };
+}
+
+function drawInteractionLines(list) {
+  const v = state.viewer;
+  list.forEach((it) => {
+    v.addCylinder({
+      start: xyz(it.ligand_atom.xyz),
+      end: xyz(it.protein_atom.xyz),
+      radius: 0.05,
+      color: COLORS[it.type] || 0x000000,
+      fromCap: 1,
+      toCap: 1,
+    });
+  });
+}
+
+function rebuildScene(resetZoom) {
+  const v = state.viewer;
+  if (!v || !state.pdbData) return;
+  v.removeAllModels();
+  v.removeAllShapes();
+  v.removeAllSurfaces();
+  v.removeAllLabels();
+
+  // model 0: protein + crystallographic hetero
+  v.addModel(state.pdbData, "pdb");
+  v.setStyle({}, { cartoon: { color: "#b3b3b3", opacity: 0.85 } });
+  v.setStyle({ hetflag: true }, { stick: { radius: 0.16, color: "#666666" } });
+  v.setStyle({ resn: WATER }, {});
+
+  const comp = state.selectedComp;
+  if (comp) {
+    v.setStyle(
+      { chain: comp.chain, resi: comp.res_seq },
+      { stick: { radius: 0.26, color: "#1a1a1a" }, sphere: { scale: 0.24, color: "#1a1a1a" } }
+    );
+  }
+  if (state.profile && state.showLines) {
+    state.profile.contact_residues.forEach((r) =>
+      v.addStyle({ chain: r.chain, resi: r.res_seq }, { stick: { radius: 0.12, color: "#808080" } })
+    );
+    drawInteractionLines(state.profile.interactions);
+  }
+
+  // model 1: docked pose (if any)
+  if (state.dockPose) {
+    v.addModel(state.dockPose.pdb, "pdb");
+    v.setStyle(
+      { model: 1 },
+      { stick: { radius: 0.3, color: "#000000" }, sphere: { scale: 0.22, color: "#000000" } }
+    );
+    state.dockPose.profile.contact_residues.forEach((r) =>
+      v.addStyle({ model: 0, chain: r.chain, resi: r.res_seq }, { stick: { radius: 0.12, color: "#808080" } })
+    );
+    if (state.showLines) drawInteractionLines(state.dockPose.profile.interactions);
+  }
+
+  // detected pocket: translucent sphere at cavity center + lining residues
+  if (state.pocketView) {
+    const p = state.pocketView;
+    const r = Math.cbrt((3 * p.volume_A3) / (4 * Math.PI));
+    v.addSphere({
+      center: { x: p.center[0], y: p.center[1], z: p.center[2] },
+      radius: Math.max(2.0, Math.min(r, 9.0)),
+      color: 0x333333,
+      opacity: 0.25,
+    });
+    p.lining_residues.forEach((rr) =>
+      v.addStyle({ chain: rr.chain, resi: rr.res_seq }, { stick: { radius: 0.12, color: "#808080" } })
+    );
+  }
+
+  if (state.showSurface) {
+    v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.5, color: "#d0d0d0" }, { model: 0, hetflag: false });
+  }
+  if (resetZoom) v.zoomTo();
+  v.render();
+}
+
+function updateDockPocket() {
+  const el = $("#dockPocket");
+  if (state.dockSite) {
+    el.textContent = state.dockSite.label;
+    el.classList.add("set");
+  } else {
+    el.textContent = "Pick a bound molecule (step 2) or detect a pocket to set the target.";
+    el.classList.remove("set");
+  }
+}
+
+// ================= interaction profiling =================
+async function selectComponent(index) {
+  const comp = state.components.find((c) => c.index === index);
+  if (!comp) return;
+  document.querySelectorAll(".comp").forEach((r) =>
+    r.classList.toggle("active", Number(r.dataset.index) === index)
+  );
+  setStatus(`Profiling atomic interactions for ${comp.label}…`, "busy");
+  try {
+    const data = await getJSON(
+      `/api/interactions?pdb=${state.pdbId}&comp=${index}`
+    );
+    state.selectedComp = comp;
+    state.profile = data.profile;
+    state.report = data.report;
+    state.dockPose = null;
+    state.pocketView = null;
+    state.dockSite = { type: "comp", index: comp.index, label: comp.label };
+    updateDockPocket();
+
+    renderInteractions(data.profile);
+    renderReport(data.report, data.profile);
+    rebuildScene();
+    if (state.viewer) {
+      state.viewer.zoomTo({ chain: comp.chain, resi: comp.res_seq });
+      state.viewer.zoom(0.55, 800);
+    }
+    switchTab("interactions");
+    const t = data.profile.interaction_total;
+    setStatus(
+      `${comp.label}: ${t} atomic interactions across ` +
+        `${data.profile.contact_residue_count} residues. See the 3D viewer for contact geometry.`
+    );
+  } catch (err) {
+    setStatus(`Interaction analysis failed: ${err.message}`, "error");
+  }
+}
+
+function renderInteractions(profile) {
+  const c = $("#interactionContent");
+  c.className = "";
+  c.innerHTML = interactionsHTML(profile);
+}
+
+function interactionsHTML(profile) {
+  const counts = profile.counts;
+  const chip = (type) =>
+    `<div class="count-chip">
+      <div class="n">${counts[type] || 0}</div>
+      <div class="l">${TYPE_LABEL[type]}</div>
+    </div>`;
+
+  const rows = profile.interactions
+    .map((it) => {
+      const la = it.ligand_atom;
+      const pa = it.protein_atom;
+      return `<tr>
+        <td><span class="pill ${it.type}">${TYPE_LABEL[it.type]}</span></td>
+        <td>${la.name} <span style="color:var(--muted)">(${la.element})</span></td>
+        <td>${pa.res_name}${pa.res_seq} · ${pa.name} <span style="color:var(--muted)">${pa.chain}</span></td>
+        <td>${it.distance} Å</td>
+      </tr>`;
+    })
+    .join("");
+
+  const resChips = profile.contact_residues
+    .map(
+      (r) =>
+        `<div class="res-chip"><b>${r.res_name}${r.res_seq}</b> <span class="rd">${r.chain} · ${r.total}× · ${r.min_distance}Å</span></div>`
+    )
+    .join("");
+
+  return `
+    <div class="counts-row">
+      ${chip("hydrogen_bond")}
+      ${chip("hydrophobic")}
+      ${chip("salt_bridge")}
+      ${chip("metal_coordination")}
+      ${chip("aromatic")}
+    </div>
+    <div class="section-h">Atomic contacts — ${profile.component.label}</div>
+    <table class="data">
+      <thead><tr><th>Type</th><th>Ligand atom</th><th>Protein atom</th><th>Distance</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4">No heavy-atom contacts within cutoffs.</td></tr>`}</tbody>
+    </table>
+    <div class="section-h">Binding-site residues (perturbation hot spots)</div>
+    <div class="res-chips">${resChips || "—"}</div>`;
+}
+
+// ================= docking =================
+async function runDock() {
+  const chem = $("#dockChemInput").value.trim();
+  switchTab("docking");
+  if (!state.pdbId) {
+    setStatus("Load a structure first.", "error");
+    return;
+  }
+  if (!chem) {
+    setStatus("Enter a chemical to dock.", "error");
+    return;
+  }
+  if (!state.dockSite) {
+    setStatus("Pick a bound molecule (step 2) or a detected pocket as the target.", "error");
+    return;
+  }
+  setStatus(
+    `Docking ${chem} into ${state.dockSite.label} — Monte-Carlo search, a few seconds…`,
+    "busy"
+  );
+  $("#dockBtn").disabled = true;
+  try {
+    const siteParam =
+      state.dockSite.type === "comp"
+        ? `comp=${state.dockSite.index}`
+        : `pocket=${state.dockSite.index}`;
+    const data = await getJSON(
+      `/api/dock?pdb=${state.pdbId}&chem=${encodeURIComponent(chem)}&${siteParam}`
+    );
+    state.dockPose = { pdb: data.pose_pdb, profile: data.profile, report: data.report };
+    renderDocking(data);
+    renderReport(data.report, data.profile);
+    rebuildScene(false);
+    if (state.viewer) {
+      state.viewer.zoomTo({ model: 1 });
+      state.viewer.zoom(0.5, 600);
+    }
+    setStatus(
+      `Docked ${data.chemical.name}: score ${data.docking.score}, ` +
+        `${data.profile.interaction_total} predicted interactions across ` +
+        `${data.profile.contact_residue_count} residues.`
+    );
+  } catch (err) {
+    setStatus(`Docking failed: ${err.message}`, "error");
+    $("#dockingContent").className = "empty";
+    $("#dockingContent").textContent = err.message;
+  } finally {
+    $("#dockBtn").disabled = false;
+  }
+}
+
+function renderDocking(data) {
+  const c = $("#dockingContent");
+  c.className = "";
+  const d = data.docking;
+  const srcNote =
+    data.chemical.coord_source === "2d"
+      ? " ⚠ only a 2D conformer was available — pose is approximate"
+      : "";
+  const box = (n, l) => `<div class="score-box"><div class="n">${n}</div><div class="l">${l}</div></div>`;
+  const rmsd = d.redock_rmsd;
+  const rmsdBox = rmsd != null ? box(rmsd + " Å", "Redock RMSD vs crystal") : "";
+  const rmsdNote =
+    rmsd != null
+      ? ` Redock RMSD to the crystallographic ligand is <b>${rmsd} Å</b> (under ~2 Å = pose reproduced).`
+      : "";
+  c.innerHTML = `
+    <div class="score-banner">
+      ${box(d.score, "Docking score (lower = better)")}
+      ${box(d.ligand_efficiency, "Per-atom score")}
+      ${box(data.chemical.n_heavy_atoms, "Heavy atoms")}
+      ${box(data.profile.contact_residue_count, "Contact residues")}
+      ${rmsdBox}
+    </div>
+    <div class="dock-note">
+      Docked <b>${data.chemical.name}</b> (CID ${data.chemical.cid}, ${data.chemical.formula || ""})
+      into <b>${data.pocket.label}</b>${srcNote}. Black sticks in the 3D viewer show the predicted pose.${rmsdNote}
+    </div>
+    ${interactionsHTML(data.profile)}`;
+}
+
+function renderReport(report, profile) {
+  const c = $("#reportContent");
+  c.className = "";
+  c.innerHTML = `
+    <div class="report-summary">${report.summary}</div>
+    <div class="section-h">Research hypotheses</div>
+    <ul class="hyp-list">${report.hypotheses.map((h) => `<li>${h}</li>`).join("")}</ul>
+    <div class="disclaimer">${report.disclaimer}</div>`;
+  $("#exportBtn").hidden = false;
+}
+
+// ================= batch virtual screen =================
+async function runScreen() {
+  const raw = $("#screenInput").value.trim();
+  if (!state.pdbId) {
+    setStatus("Load a structure first.", "error");
+    return;
+  }
+  if (!raw) {
+    setStatus("Enter one or more chemicals to screen.", "error");
+    return;
+  }
+  if (!state.dockSite) {
+    setStatus("Set a docking target first (pick a molecule or a pocket).", "error");
+    return;
+  }
+  setStatus(
+    `Screening into ${state.dockSite.label} — docking each chemical on a shared grid, ~10–20 s…`,
+    "busy"
+  );
+  $("#screenBtn").disabled = true;
+  try {
+    const siteParam =
+      state.dockSite.type === "comp"
+        ? `comp=${state.dockSite.index}`
+        : `pocket=${state.dockSite.index}`;
+    const data = await getJSON(
+      `/api/screen?pdb=${state.pdbId}&chems=${encodeURIComponent(raw)}&${siteParam}`
+    );
+    renderScreen(data);
+    const ok = data.results.filter((r) => !r.error).length;
+    setStatus(`Screened ${data.results.length} chemical(s) into ${data.site}; ${ok} docked and ranked by fit.`);
+  } catch (err) {
+    setStatus(`Screen failed: ${err.message}`, "error");
+  } finally {
+    $("#screenBtn").disabled = false;
+  }
+}
+
+function renderScreen(data) {
+  const c = $("#screenContent");
+  const rows = data.results
+    .map((r) => {
+      if (r.error) {
+        return `<tr class="bad-row"><td>—</td><td>${r.query}</td><td colspan="6">${r.error}</td><td></td></tr>`;
+      }
+      return `<tr>
+        <td class="rank-cell">#${r.rank}</td>
+        <td>${r.query}</td>
+        <td>${r.formula || ""}</td>
+        <td>${r.score}</td>
+        <td>${r.ligand_efficiency}</td>
+        <td>${r.counts.hydrogen_bond}</td>
+        <td>${r.counts.salt_bridge}</td>
+        <td>${r.contact_residue_count}</td>
+        <td><button class="mini view-btn" data-chem="${r.query}">View pose</button></td>
+      </tr>`;
+    })
+    .join("");
+  c.innerHTML = `
+    <div class="section-h" style="margin-top:18px">Ranking — ${data.site}</div>
+    <table class="data">
+      <thead><tr><th>Rank</th><th>Chemical</th><th>Formula</th><th>Score</th><th>Per-atom</th><th>H-bonds</th><th>Salt</th><th>Contacts</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="hint">Lower score = better predicted fit. “View pose” docks that chemical singly and shows the pose in the 3D viewer.</div>`;
+  c.querySelectorAll(".view-btn").forEach((b) =>
+    b.addEventListener("click", () => {
+      $("#dockChemInput").value = b.dataset.chem;
+      runDock();
+    })
+  );
+}
+
+// ================= pocket detection =================
+async function detectPockets() {
+  if (!state.pdbId) {
+    setStatus("Load a structure first.", "error");
+    return;
+  }
+  switchTab("pockets");
+  setStatus("Detecting pockets (LIGSITE geometric cavity scan)… a few seconds.", "busy");
+  $("#detectBtn").disabled = true;
+  try {
+    const data = await getJSON(`/api/pockets?pdb=${state.pdbId}`);
+    state.pockets = data.pockets;
+    renderPockets(data.pockets);
+    setStatus(
+      `Found ${data.count} candidate pocket(s). Click “Show in 3D” to view, or “Dock here” to dock a chemical into a cavity.`
+    );
+  } catch (err) {
+    setStatus(`Pocket detection failed: ${err.message}`, "error");
+  } finally {
+    $("#detectBtn").disabled = false;
+  }
+}
+
+function pocketCard(p) {
+  const res = p.lining_residues
+    .slice(0, 12)
+    .map((r) => r.res_name + r.res_seq)
+    .join(", ");
+  const more = p.lining_residue_count > 12 ? ", …" : "";
+  return `<div class="pocket-card" id="pk-card-${p.index}">
+    <div class="pocket-top">
+      <span class="pocket-rank">#${p.index + 1}</span>
+      <div class="scorebar"><i style="width:${p.score}%"></i></div>
+      <div class="pocket-metrics">
+        <span>score <b>${p.score}</b></span>
+        <span>volume <b>${p.volume_A3} Å³</b></span>
+        <span>enclosure <b>${p.enclosure}/7</b></span>
+        <span>lining <b>${p.lining_residue_count}</b></span>
+      </div>
+      <div class="pocket-actions">
+        <button class="mini" id="pk-show-${p.index}">Show in 3D</button>
+        <button class="mini" id="pk-dock-${p.index}">Dock here</button>
+      </div>
+    </div>
+    <div class="pocket-res">Lining residues: ${res}${more}</div>
+  </div>`;
+}
+
+function renderPockets(pk) {
+  const c = $("#pocketsContent");
+  if (!pk.length) {
+    c.className = "empty";
+    c.textContent = "No enclosed cavities found (the surface may be open/flat).";
+    return;
+  }
+  c.className = "";
+  c.innerHTML = `<div class="pocket-list">${pk.map(pocketCard).join("")}</div>`;
+  pk.forEach((p) => {
+    c.querySelector(`#pk-show-${p.index}`).addEventListener("click", () => showPocket(p.index));
+    c.querySelector(`#pk-dock-${p.index}`).addEventListener("click", () => dockIntoPocket(p.index));
+  });
+}
+
+function showPocket(index) {
+  const p = state.pockets.find((x) => x.index === index);
+  if (!p) return;
+  state.pocketView = p;
+  document.querySelectorAll(".pocket-card").forEach((el) => el.classList.remove("active"));
+  const card = $(`#pk-card-${index}`);
+  if (card) card.classList.add("active");
+  rebuildScene(false);
+  if (state.viewer) {
+    const resi = p.lining_residues.map((r) => r.res_seq);
+    state.viewer.zoomTo({ resi });
+    state.viewer.zoom(0.85, 500);
+  }
+  switchTab("viewer");
+}
+
+function dockIntoPocket(index) {
+  const p = state.pockets.find((x) => x.index === index);
+  if (!p) return;
+  state.pocketView = p;
+  state.dockSite = {
+    type: "pocket",
+    index,
+    label: `detected pocket #${index + 1} (${p.volume_A3} Å³)`,
+  };
+  updateDockPocket();
+  switchTab("docking");
+  setStatus(`Target set to pocket #${index + 1}. Enter a chemical and click Dock.`);
+  $("#dockChemInput").focus();
+}
+
+// ================= chemical lookup =================
+async function lookupChemical(q) {
+  q = (q || "").trim();
+  if (!q) return;
+  setStatus(`Looking up "${q}" in PubChem…`, "busy");
+  switchTab("chemical");
+  try {
+    const data = await getJSON(`/api/chemical?q=${encodeURIComponent(q)}`);
+    state.chemical = data;
+    if (!$("#dockChemInput").value.trim()) $("#dockChemInput").value = q;
+    renderChemical(data);
+    setStatus(`Loaded chemical: ${data.molecular_formula || q} (CID ${data.cid}).`);
+  } catch (err) {
+    setStatus(`Chemical lookup failed: ${err.message}`, "error");
+    $("#chemicalContent").className = "empty";
+    $("#chemicalContent").textContent = err.message;
+  }
+}
+
+function renderChemical(d) {
+  const c = $("#chemicalContent");
+  c.className = "";
+  const dl = d.druglikeness || {};
+  const dlClass = dl.drug_like ? "ok" : "warn";
+  const dlBadge = dl.drug_like
+    ? `<span class="badge-ok">drug-like ✓</span>`
+    : `<span class="badge-warn">${dl.violation_count} rule violation(s)</span>`;
+  const violations = (dl.violations || []).length
+    ? `<div class="hint">${dl.violations.join(" · ")}</div>`
+    : "";
+
+  let chembl = "";
+  if (d.chembl) {
+    chembl = `<div class="druglike ${d.chembl.max_phase === 4 ? "ok" : ""}">
+      <div><b>ChEMBL:</b> ${d.chembl.pref_name || d.chembl.chembl_id} —
+      <span class="${d.chembl.max_phase === 4 ? "badge-ok" : ""}">${d.chembl.development_status}</span></div>
+      ${d.chembl.url ? `<div class="hint"><a class="ext" href="${d.chembl.url}" target="_blank">View in ChEMBL ↗</a></div>` : ""}
+    </div>`;
+  }
+
+  const prop = (k, v) =>
+    `<div class="meta-cell"><div class="k">${k}</div><div class="v">${v ?? "—"}</div></div>`;
+
+  c.innerHTML = `
+    <div class="chem-head">
+      ${d.image_url ? `<img class="chem-img" src="${d.image_url}" alt="2D structure" />` : ""}
+      <div class="chem-info">
+        <h3>${d.iupac_name || d.query}</h3>
+        <div class="pdbid" style="font-family:monospace">CID ${d.cid} · ${d.molecular_formula || ""}</div>
+        ${d.pubchem_url ? `<div class="hint"><a class="ext" href="${d.pubchem_url}" target="_blank">View in PubChem ↗</a></div>` : ""}
+        <div class="druglike ${dlClass}">
+          <div>${dl.rule || "Druglikeness"}: ${dlBadge}</div>
+          ${violations}
+        </div>
+        ${chembl}
+      </div>
+    </div>
+    <div class="section-h">Physicochemical properties</div>
+    <div class="meta-grid">
+      ${prop("Molecular weight", d.molecular_weight ? d.molecular_weight + " g/mol" : "—")}
+      ${prop("XLogP", d.xlogp)}
+      ${prop("TPSA", d.tpsa ? d.tpsa + " Å²" : "—")}
+      ${prop("H-bond donors", d.h_bond_donors)}
+      ${prop("H-bond acceptors", d.h_bond_acceptors)}
+      ${prop("Rotatable bonds", d.rotatable_bonds)}
+      ${prop("Formal charge", d.formal_charge)}
+    </div>
+    <div class="section-h">SMILES</div>
+    <div class="smiles">${d.smiles || "—"}</div>`;
+}
+
+// ================= search =================
+async function searchPDB(q) {
+  q = (q || "").trim();
+  if (!q) return;
+  const box = $("#searchResults");
+  box.innerHTML = `<div class="hint"><span class="spinner"></span>Searching…</div>`;
+  try {
+    const data = await getJSON(`/api/search?q=${encodeURIComponent(q)}`);
+    if (!data.results.length) {
+      box.innerHTML = `<div class="hint">No matches.</div>`;
+      return;
+    }
+    box.innerHTML = "";
+    data.results.forEach((r) => {
+      const row = el("div", "sr", `<span>${r.pdb_id}</span><span style="color:var(--muted)">↵ load</span>`);
+      row.addEventListener("click", () => {
+        $("#pdbInput").value = r.pdb_id;
+        loadStructure(r.pdb_id);
+      });
+      box.appendChild(row);
+    });
+  } catch (err) {
+    box.innerHTML = `<div class="hint">Search failed: ${err.message}</div>`;
+  }
+}
+
+// ================= export =================
+function exportReport() {
+  if (!state.report || !state.profile) return;
+  const m = state.meta || {};
+  const p = state.profile;
+  const lines = [];
+  lines.push("AtomScope — Interaction Report (research-only)");
+  lines.push("=".repeat(50));
+  lines.push(`PDB: ${m.pdb_id}  ${m.title || ""}`);
+  lines.push(`Method: ${m.experimental_method || "—"}  Resolution: ${m.resolution_A || "—"} A`);
+  lines.push(`Component: ${p.component.label} (${p.component.kind})`);
+  lines.push("");
+  lines.push("SUMMARY");
+  lines.push(state.report.summary);
+  lines.push("");
+  lines.push("INTERACTION COUNTS");
+  Object.entries(p.counts).forEach(([k, v]) => lines.push(`  ${k}: ${v}`));
+  lines.push("");
+  lines.push("ATOMIC CONTACTS");
+  p.interactions.forEach((it) =>
+    lines.push(
+      `  ${TYPE_LABEL[it.type]}: ${it.ligand_atom.name} -- ` +
+        `${it.protein_atom.res_name}${it.protein_atom.res_seq}/${it.protein_atom.name} ` +
+        `(${it.distance} A)`
+    )
+  );
+  lines.push("");
+  lines.push("HYPOTHESES");
+  state.report.hypotheses.forEach((h, i) => lines.push(`  ${i + 1}. ${h}`));
+  lines.push("");
+  lines.push(state.report.disclaimer);
+
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `atomscope_${m.pdb_id}_${p.component.res_name}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ================= wiring =================
+function init() {
+  $("#loadBtn").addEventListener("click", () => loadStructure($("#pdbInput").value));
+  $("#pdbInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadStructure($("#pdbInput").value);
+  });
+  document.querySelectorAll("a.ex").forEach((a) =>
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      $("#pdbInput").value = a.dataset.pdb;
+      loadStructure(a.dataset.pdb);
+    })
+  );
+  $("#searchBtn").addEventListener("click", () => searchPDB($("#searchInput").value));
+  $("#searchInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") searchPDB($("#searchInput").value);
+  });
+  $("#chemBtn").addEventListener("click", () => lookupChemical($("#chemInput").value));
+  $("#chemInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") lookupChemical($("#chemInput").value);
+  });
+  $("#detectBtn").addEventListener("click", detectPockets);
+  $("#dockBtn").addEventListener("click", runDock);
+  $("#dockChemInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runDock();
+  });
+  $("#screenBtn").addEventListener("click", runScreen);
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.addEventListener("click", () => switchTab(t.dataset.tab))
+  );
+  $("#toggleSurface").addEventListener("change", (e) => {
+    state.showSurface = e.target.checked;
+    rebuildScene();
+  });
+  $("#toggleLines").addEventListener("change", (e) => {
+    state.showLines = e.target.checked;
+    rebuildScene();
+  });
+  $("#resetView").addEventListener("click", () => {
+    if (state.viewer) {
+      state.viewer.zoomTo();
+      state.viewer.render();
+    }
+  });
+  $("#exportBtn").addEventListener("click", exportReport);
+}
+
+document.addEventListener("DOMContentLoaded", init);

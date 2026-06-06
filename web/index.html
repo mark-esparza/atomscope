@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AtomScope — Atomic-Level Protein &amp; Ligand Interaction Analyzer</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⬡</span>
+      <div>
+        <h1>AtomScope</h1>
+        <p class="tagline">Single-protein structure &amp; ligand interaction analysis — down to the atom</p>
+      </div>
+    </div>
+    <div class="research-badge">RESEARCH ONLY · not for clinical use</div>
+  </header>
+
+  <div class="layout">
+    <!-- ===== Left control rail ===== -->
+    <aside class="rail">
+      <section class="card">
+        <h2>1 · Load a protein</h2>
+        <label class="field-label">PDB ID (RCSB)</label>
+        <div class="inline">
+          <input id="pdbInput" type="text" placeholder="e.g. 1HSG" maxlength="4" />
+          <button id="loadBtn" class="primary">Load</button>
+        </div>
+        <div class="hint">Examples:
+          <a href="#" class="ex" data-pdb="1HSG">1HSG</a>·
+          <a href="#" class="ex" data-pdb="1CA2">1CA2</a>·
+          <a href="#" class="ex" data-pdb="3PTB">3PTB</a>·
+          <a href="#" class="ex" data-pdb="6LU7">6LU7</a>
+        </div>
+        <details class="search-block">
+          <summary>Search the PDB by name</summary>
+          <div class="inline">
+            <input id="searchInput" type="text" placeholder="e.g. HIV protease" />
+            <button id="searchBtn">Find</button>
+          </div>
+          <div id="searchResults" class="search-results"></div>
+        </details>
+      </section>
+
+      <section class="card" id="componentCard" hidden>
+        <h2>2 · Pick a bound molecule</h2>
+        <p class="hint">Ligands, drugs, ions and metals found in the structure.</p>
+        <div id="componentList" class="component-list"></div>
+      </section>
+
+      <section class="card">
+        <h2>3 · Inspect a chemical</h2>
+        <p class="hint">Look up any drug, chemical, or element (PubChem).</p>
+        <div class="inline">
+          <input id="chemInput" type="text" placeholder="aspirin · imatinib · zinc" />
+          <button id="chemBtn">Lookup</button>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ===== Main panel ===== -->
+    <main class="main">
+      <nav class="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="viewer">3D Atomic Viewer</button>
+        <button class="tab" data-tab="interactions">Interactions</button>
+        <button class="tab" data-tab="pockets">Pockets</button>
+        <button class="tab" data-tab="docking">Docking</button>
+        <button class="tab" data-tab="chemical">Chemical</button>
+        <button class="tab" data-tab="report">Report</button>
+      </nav>
+
+      <div id="statusBar" class="status-bar">Enter a PDB ID to begin.</div>
+
+      <section class="panel active" data-panel="overview">
+        <div id="overviewContent" class="empty">No structure loaded yet.</div>
+      </section>
+
+      <section class="panel" data-panel="viewer">
+        <div class="viewer-toolbar">
+          <span class="legend-note">Dashed lines = atomic interactions. See the Interactions tab for type &amp; distance per contact.</span>
+          <span class="spacer"></span>
+          <label class="chk"><input type="checkbox" id="toggleSurface" /> Surface</label>
+          <label class="chk"><input type="checkbox" id="toggleLines" checked /> Interaction lines</label>
+          <button id="resetView" class="mini">Reset view</button>
+        </div>
+        <div id="viewer3d" class="viewer3d"></div>
+      </section>
+
+      <section class="panel" data-panel="interactions">
+        <div id="interactionContent" class="empty">Select a bound molecule to profile its atomic interactions.</div>
+      </section>
+
+      <section class="panel" data-panel="pockets">
+        <div class="pocket-controls">
+          <button id="detectBtn" class="primary">Detect pockets</button>
+          <span class="hint" style="margin:0">Finds geometric cavities (LIGSITE) so you can dock into <b>apo</b> structures with no bound ligand. Takes a few seconds.</span>
+        </div>
+        <div id="pocketsContent" class="empty">No pockets detected yet. Click “Detect pockets”.</div>
+      </section>
+
+      <section class="panel" data-panel="docking">
+        <div class="dock-controls">
+          <div class="dock-row">
+            <div>
+              <label class="field-label">Chemical to dock (PubChem name or CID)</label>
+              <input id="dockChemInput" type="text" placeholder="benzamidine · 2332 · aspirin" />
+            </div>
+            <div>
+              <label class="field-label">Target pocket</label>
+              <div id="dockPocket" class="dock-pocket">Select a bound molecule in step 2 to set the pocket.</div>
+            </div>
+            <button id="dockBtn" class="primary">Dock</button>
+          </div>
+          <div class="hint">Places a real PubChem 3D conformer into the chosen pocket via Monte-Carlo rigid-body search, then profiles the predicted pose's atomic interactions. Approximate, research-only — score is relative (lower = better fit), not kcal/mol.</div>
+        </div>
+        <div id="dockingContent" class="empty">No docking run yet.</div>
+
+        <div class="screen-block">
+          <div class="section-h">Batch virtual screen</div>
+          <div class="dock-row">
+            <div style="flex:2">
+              <label class="field-label">Chemicals — comma or newline separated, up to 10</label>
+              <textarea id="screenInput" rows="2" placeholder="aspirin, ibuprofen, caffeine, benzamidine"></textarea>
+            </div>
+            <button id="screenBtn" class="primary">Screen</button>
+          </div>
+          <div class="hint" style="margin-top:8px">Docks every chemical into the same target (one shared grid) and ranks them by predicted fit. Uses the target set above.</div>
+          <div id="screenContent"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="chemical">
+        <div id="chemicalContent" class="empty">Look up a chemical to see properties &amp; druglikeness.</div>
+      </section>
+
+      <section class="panel" data-panel="report">
+        <div id="reportContent" class="empty">A research summary appears here after analysis.</div>
+        <button id="exportBtn" class="primary" hidden>Export report (.txt)</button>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
