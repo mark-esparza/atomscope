@@ -242,6 +242,7 @@ function rebuildScene(resetZoom) {
   v.removeAllShapes();
   v.removeAllSurfaces();
   v.removeAllLabels();
+  state._pickLabel = null;
 
   // model 0: protein + crystallographic hetero
   v.addModel(state.pdbData, "pdb");
@@ -330,8 +331,53 @@ function rebuildScene(resetZoom) {
   if (state.showSurface) {
     v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.5, color: "#d0d0d0" }, { model: 0, hetflag: false });
   }
+  setupPicking(v);
   if (resetZoom) v.zoomTo();
   v.render();
+}
+
+// Click any atom to identify it: pins a label and reports residue/atom/element
+// (plus conservation + pocket context when those analyses have been run).
+function setupPicking(v) {
+  v.setClickable({}, true, (atom) => {
+    if (state._pickLabel) {
+      v.removeLabel(state._pickLabel);
+      state._pickLabel = null;
+    }
+    const het = atom.hetflag;
+    const resName = atom.resn || "?";
+    const resId = het ? resName : `${resName}${atom.resi}`;
+    const chain = atom.chain ? ` ${atom.chain}` : "";
+    let line = `${resId}${chain} · ${atom.atom} (${atom.elem})`;
+    const extras = [];
+
+    if (!het && state.evolution && state.evolution.residues) {
+      const r = state.evolution.residues.find(
+        (x) => x.chain === atom.chain && x.res_seq === atom.resi
+      );
+      if (r && r.conservation != null) extras.push(`conservation ${r.conservation}`);
+    }
+    if (!het && (state.pockets || []).length) {
+      const inPocket = state.pockets.find((p) =>
+        (p.lining_residues || []).some((rr) => rr.chain === atom.chain && rr.res_seq === atom.resi)
+      );
+      if (inPocket) extras.push(`lines pocket #${inPocket.index + 1}`);
+    }
+
+    const text = extras.length ? `${line}\n${extras.join(" · ")}` : line;
+    state._pickLabel = v.addLabel(text, {
+      position: { x: atom.x, y: atom.y, z: atom.z },
+      backgroundColor: "white",
+      backgroundOpacity: 0.92,
+      fontColor: "black",
+      fontSize: 12,
+      borderThickness: 1,
+      borderColor: "#444444",
+      alignment: "bottomCenter",
+    });
+    v.render();
+    setStatus(`Selected ${resId}${chain} · ${atom.atom} (${atom.elem})` + (extras.length ? " · " + extras.join(" · ") : ""));
+  });
 }
 
 function updateDockPocket() {
