@@ -37,7 +37,9 @@ const state = {
   dockSite: null,
   pocketView: null,
   evolution: null,
-  colorByConservation: false,
+  colorMode: "mono",
+  measureMode: false,
+  measureAtoms: [],
   showCoupling: false,
   showDivergence: false,
   viewer: null,
@@ -131,11 +133,15 @@ async function loadStructure(pdbId) {
     state.dockSite = null;
     state.pocketView = null;
     state.evolution = null;
-    state.colorByConservation = false;
+    state.colorMode = "mono";
+    state.measureMode = false;
+    state.measureAtoms = [];
     state.showCoupling = false;
     state.showDivergence = false;
-    const evoCb = $("#toggleConservation");
-    if (evoCb) evoCb.checked = false;
+    const cm = $("#colorMode");
+    if (cm) cm.value = "mono";
+    const mc = $("#toggleMeasure");
+    if (mc) mc.checked = false;
     $("#evolutionContent").className = "empty";
     $("#evolutionContent").textContent = "No conservation analysis yet. Click “Analyze conservation”.";
 
@@ -246,18 +252,35 @@ function rebuildScene(resetZoom) {
 
   // model 0: protein + crystallographic hetero
   v.addModel(state.pdbData, "pdb");
-  v.setStyle({}, { cartoon: { color: "#b3b3b3", opacity: 0.85 } });
-  if (state.colorByConservation && state.evolution && state.evolution.residues) {
+  const mode = state.colorMode || "mono";
+
+  // --- protein cartoon coloring by selected mode ---
+  if (mode === "spectrum") {
+    v.setStyle({}, { cartoon: { color: "spectrum", opacity: 0.9 } });
+  } else if (mode === "chain") {
+    const palette = ["#5b8def", "#e0823d", "#3da35d", "#b052c0", "#d24d57", "#3aa6a6", "#8a8f99"];
+    (state.chains || ["A"]).forEach((ch, i) =>
+      v.setStyle({ chain: ch }, { cartoon: { color: palette[i % palette.length], opacity: 0.9 } })
+    );
+  } else {
+    v.setStyle({}, { cartoon: { color: "#b3b3b3", opacity: 0.85 } });
+  }
+  if (mode === "conservation" && state.evolution && state.evolution.residues) {
     applyConservationColors(v);
   }
-  v.setStyle({ hetflag: true }, { stick: { radius: 0.16, color: "#666666" } });
+
+  // --- hetero (ligands/ions): element CPK in element mode, else neutral ---
+  const elementMode = mode === "element";
+  const hetStick = elementMode ? { colorscheme: "Jmol" } : { color: "#666666" };
+  v.setStyle({ hetflag: true }, { stick: { radius: 0.16, ...hetStick } });
   v.setStyle({ resn: WATER }, {});
 
   const comp = state.selectedComp;
   if (comp) {
+    const cc = elementMode ? { colorscheme: "Jmol" } : { color: "#1a1a1a" };
     v.setStyle(
       { chain: comp.chain, resi: comp.res_seq },
-      { stick: { radius: 0.26, color: "#1a1a1a" }, sphere: { scale: 0.24, color: "#1a1a1a" } }
+      { stick: { radius: 0.26, ...cc }, sphere: { scale: 0.24, ...cc } }
     );
   }
   if (state.profile && state.showLines) {
@@ -336,21 +359,25 @@ function rebuildScene(resetZoom) {
   v.render();
 }
 
-// Click any atom to identify it: pins a label and reports residue/atom/element
-// (plus conservation + pocket context when those analyses have been run).
+function atomLabel(atom) {
+  const het = atom.hetflag;
+  const resId = het ? atom.resn || "?" : `${atom.resn || "?"}${atom.resi}`;
+  const chain = atom.chain ? ` ${atom.chain}` : "";
+  return `${resId}${chain} · ${atom.atom} (${atom.elem})`;
+}
+
+// Picking: click identifies an atom (or measures distance in Measure mode);
+// hover previews the atom under the cursor.
 function setupPicking(v) {
   v.setClickable({}, true, (atom) => {
+    if (state.measureMode) return measureClick(v, atom);
     if (state._pickLabel) {
       v.removeLabel(state._pickLabel);
       state._pickLabel = null;
     }
     const het = atom.hetflag;
-    const resName = atom.resn || "?";
-    const resId = het ? resName : `${resName}${atom.resi}`;
-    const chain = atom.chain ? ` ${atom.chain}` : "";
-    let line = `${resId}${chain} · ${atom.atom} (${atom.elem})`;
+    const base = atomLabel(atom);
     const extras = [];
-
     if (!het && state.evolution && state.evolution.residues) {
       const r = state.evolution.residues.find(
         (x) => x.chain === atom.chain && x.res_seq === atom.resi
@@ -363,21 +390,85 @@ function setupPicking(v) {
       );
       if (inPocket) extras.push(`lines pocket #${inPocket.index + 1}`);
     }
+    const text = extras.length ? `${base}\n${extras.join(" · ")}` : base;
+    state._pickLabel = v.addLabel(text, _labelStyle(atom));
+    v.render();
+    setStatus(`Selected ${base}` + (extras.length ? " · " + extras.join(" · ") : ""));
+  });
 
-    const text = extras.length ? `${line}\n${extras.join(" · ")}` : line;
-    state._pickLabel = v.addLabel(text, {
-      position: { x: atom.x, y: atom.y, z: atom.z },
+  // Hover preview.
+  v.setHoverable(
+    {},
+    true,
+    (atom) => {
+      if (state._hoverLabel) v.removeLabel(state._hoverLabel);
+      state._hoverLabel = v.addLabel(atomLabel(atom), {
+        position: { x: atom.x, y: atom.y, z: atom.z },
+        backgroundColor: "#222222",
+        backgroundOpacity: 0.85,
+        fontColor: "white",
+        fontSize: 11,
+        alignment: "bottomCenter",
+      });
+      v.render();
+    },
+    () => {
+      if (state._hoverLabel) {
+        v.removeLabel(state._hoverLabel);
+        state._hoverLabel = null;
+        v.render();
+      }
+    }
+  );
+}
+
+function _labelStyle(atom) {
+  return {
+    position: { x: atom.x, y: atom.y, z: atom.z },
+    backgroundColor: "white",
+    backgroundOpacity: 0.92,
+    fontColor: "black",
+    fontSize: 12,
+    borderThickness: 1,
+    borderColor: "#444444",
+    alignment: "bottomCenter",
+  };
+}
+
+// Measure mode: collect two clicked atoms, draw a dashed line + distance label.
+function measureClick(v, atom) {
+  state.measureAtoms.push(atom);
+  v.addSphere({
+    center: { x: atom.x, y: atom.y, z: atom.z },
+    radius: 0.35,
+    color: 0x000000,
+    opacity: 0.9,
+  });
+  if (state.measureAtoms.length === 2) {
+    const [a, b] = state.measureAtoms;
+    const d = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
+    v.addCylinder({
+      start: { x: a.x, y: a.y, z: a.z },
+      end: { x: b.x, y: b.y, z: b.z },
+      radius: 0.06,
+      color: 0x000000,
+      dashed: true,
+    });
+    v.addLabel(`${d.toFixed(2)} Å`, {
+      position: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 },
       backgroundColor: "white",
       backgroundOpacity: 0.92,
       fontColor: "black",
       fontSize: 12,
       borderThickness: 1,
       borderColor: "#444444",
-      alignment: "bottomCenter",
     });
-    v.render();
-    setStatus(`Selected ${resId}${chain} · ${atom.atom} (${atom.elem})` + (extras.length ? " · " + extras.join(" · ") : ""));
-  });
+    setStatus(`Distance ${atomLabel(a)} ↔ ${atomLabel(b)} = ${d.toFixed(2)} Å. Click two more atoms to measure again.`);
+    state.measureAtoms = [];
+  } else {
+    setStatus(`Measure: picked ${atomLabel(atom)} — click a second atom for the distance.`);
+  }
+  v.render();
 }
 
 function updateDockPocket() {
@@ -1111,9 +1202,9 @@ function renderEvolution(d) {
     <div class="hint">★ = specificity candidate: pocket lined by residues this protein has diverged from the conserved family consensus (possible lineage-specific binding specialization).</div>
     <div class="disclaimer">Conservation is a family-MSA signal (Shannon entropy across ${d.n_sequences} Pfam homologs, 0 = variable, 1 = invariant) — not phylogenetic ancestral reconstruction. Conserved pocket-lining residues suggest functional importance.</div>`;
   $("#evoColorBtn").addEventListener("click", () => {
-    state.colorByConservation = true;
-    const cb = $("#toggleConservation");
-    if (cb) cb.checked = true;
+    state.colorMode = "conservation";
+    const cm = $("#colorMode");
+    if (cm) cm.value = "conservation";
     rebuildScene(false);
     switchTab("viewer");
   });
@@ -1464,14 +1555,25 @@ function init() {
   });
   $("#detectBtn").addEventListener("click", detectPockets);
   $("#evoBtn").addEventListener("click", runEvolution);
-  $("#toggleConservation").addEventListener("change", (e) => {
-    if (e.target.checked && !state.evolution) {
-      e.target.checked = false;
+  $("#colorMode").addEventListener("change", (e) => {
+    const mode = e.target.value;
+    if (mode === "conservation" && !state.evolution) {
+      e.target.value = state.colorMode || "mono";
+      setStatus("Run the Evolution tab first to color by conservation.", "error");
       runEvolution();
       return;
     }
-    state.colorByConservation = e.target.checked;
+    state.colorMode = mode;
     rebuildScene(false);
+  });
+  $("#toggleMeasure").addEventListener("change", (e) => {
+    state.measureMode = e.target.checked;
+    state.measureAtoms = [];
+    setStatus(
+      e.target.checked
+        ? "Measure mode on — click two atoms to get the distance between them."
+        : "Measure mode off."
+    );
   });
   $("#dockBtn").addEventListener("click", runDock);
   $("#dockChemInput").addEventListener("keydown", (e) => {
@@ -1491,6 +1593,8 @@ function init() {
   });
   $("#resetView").addEventListener("click", () => {
     if (state.viewer) {
+      state.measureAtoms = [];
+      rebuildScene(false); // clears pick/measure labels & shapes
       state.viewer.zoomTo();
       state.viewer.render();
     }

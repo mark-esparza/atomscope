@@ -70,11 +70,20 @@
 
       <section class="panel" data-panel="viewer">
         <div class="viewer-toolbar">
-          <span class="legend-note"><b>Click any atom to identify it.</b> Dashed lines = atomic interactions (see the Interactions tab for type &amp; distance).</span>
+          <span class="legend-note"><b>Click an atom to identify it</b> · hover to preview · turn on <b>Measure</b> to get distances.</span>
           <span class="spacer"></span>
+          <label class="chk">Color
+            <select id="colorMode">
+              <option value="mono">Monochrome</option>
+              <option value="element">Element (CPK)</option>
+              <option value="chain">Chain</option>
+              <option value="spectrum">Rainbow (N→C)</option>
+              <option value="conservation">Conservation</option>
+            </select>
+          </label>
           <label class="chk"><input type="checkbox" id="toggleSurface" /> Surface</label>
           <label class="chk"><input type="checkbox" id="toggleLines" checked /> Interaction lines</label>
-          <label class="chk"><input type="checkbox" id="toggleConservation" /> Conservation</label>
+          <label class="chk"><input type="checkbox" id="toggleMeasure" /> Measure</label>
           <button id="resetView" class="mini">Reset view</button>
         </div>
         <div id="viewer3d" class="viewer3d"></div>
