@@ -42,6 +42,12 @@ _DIRS = [
     (1, 1, 1), (1, 1, -1), (1, -1, 1), (-1, 1, 1),
 ]
 
+# Residue classes for pocket physicochemistry (Gap 2: pocket vs ligandable vs druggable).
+HYDROPHOBIC_RES = {"ALA", "VAL", "LEU", "ILE", "MET", "PHE", "TRP", "PRO", "CYS"}
+POLAR_RES = {"SER", "THR", "ASN", "GLN", "TYR", "GLY"}
+CHARGED_RES = {"ASP", "GLU", "LYS", "ARG", "HIS"}
+AROMATIC_RES = {"PHE", "TYR", "TRP", "HIS"}
+
 
 def _rvdw(el: str) -> float:
     return _RVDW.get(el.upper(), _DEFAULT_RVDW)
@@ -167,16 +173,21 @@ def detect_pockets(structure: Structure, max_pockets: int = 6) -> list[dict]:
         center = (sx / n, sy / n, sz / n)
         mean_psp = psp_sum / n
         lining = _lining_residues(coords, cell)
+        volume = n * voxel_vol
+        assessment = _assess(volume, mean_psp, lining)
         results.append(
             {
                 "index": ci,
                 "center": [round(c, 2) for c in center],
                 "n_points": n,
-                "volume_A3": round(n * voxel_vol, 1),
+                "volume_A3": round(volume, 1),
                 "enclosure": round(mean_psp, 2),
                 "lining_residues": lining,
                 "lining_residue_count": len(lining),
-                "score": _druggability(n * voxel_vol, len(lining), mean_psp),
+                "score": assessment["druggability_score"],
+                "tier": assessment["tier"],
+                "subscores": assessment["subscores"],
+                "composition": assessment["composition"],
             }
         )
 
@@ -251,9 +262,53 @@ def _lining_residues(coords, cell, cutoff=4.0):
     return out
 
 
-def _druggability(volume, n_lining, mean_psp):
-    """Heuristic 0-100 pocket score from size, enclosure, and buriedness."""
-    vol_term = min(volume / 400.0, 1.0)        # saturates ~400 A^3
-    line_term = min(n_lining / 20.0, 1.0)      # saturates ~20 residues
+def _assess(volume, mean_psp, lining):
+    """Classify a cavity as pocket / ligandable / druggable with sub-scores.
+
+    Addresses the literature's Gap 2: a detected *pocket* is geometric; a
+    *ligandable* pocket is large and enclosed enough to bind a small molecule;
+    a *druggable* pocket additionally has favourable (hydrophobic, enclosed,
+    not-too-polar) chemistry. Heuristic — proxies SiteMap/fpocket druggability,
+    not a trained model.
+    """
+    total = len(lining) or 1
+    hydrophobic = sum(1 for r in lining if r["res_name"] in HYDROPHOBIC_RES)
+    polar = sum(1 for r in lining if r["res_name"] in POLAR_RES)
+    charged = sum(1 for r in lining if r["res_name"] in CHARGED_RES)
+    aromatic = sum(1 for r in lining if r["res_name"] in AROMATIC_RES)
+
+    hydrophobicity = hydrophobic / total
+    polarity = (polar + charged) / total
+    aromaticity = aromatic / total
+
+    vol_term = min(volume / 400.0, 1.0)               # saturates ~400 A^3
     encl_term = max(0.0, min((mean_psp - 4.0) / 3.0, 1.0))  # PSP 5..7 -> 0.33..1
-    return round(100 * (0.4 * vol_term + 0.2 * line_term + 0.4 * encl_term), 1)
+
+    # Druggability index (0-100): size + enclosure + hydrophobicity, polarity penalty.
+    drug = 0.30 * vol_term + 0.30 * encl_term + 0.30 * hydrophobicity - 0.15 * polarity
+    drug = round(100 * max(0.0, min(drug + 0.15, 1.0)), 1)
+
+    # Tier thresholds (heuristic).
+    if volume >= 80 and encl_term >= 0.4:
+        tier = "druggable" if (drug >= 55 and hydrophobicity >= 0.40) else "ligandable"
+    else:
+        tier = "pocket"
+
+    return {
+        "tier": tier,
+        "druggability_score": drug,
+        "subscores": {
+            "volume": round(vol_term, 2),
+            "enclosure": round(encl_term, 2),
+            "hydrophobicity": round(hydrophobicity, 2),
+            "polarity": round(polarity, 2),
+            "aromaticity": round(aromaticity, 2),
+        },
+        "composition": {
+            "hydrophobic": hydrophobic,
+            "polar": polar,
+            "charged": charged,
+            "aromatic": aromatic,
+            "total": len(lining),
+        },
+    }

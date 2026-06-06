@@ -609,12 +609,16 @@ function pocketCard(p) {
     .map((r) => r.res_name + r.res_seq)
     .join(", ");
   const more = p.lining_residue_count > 12 ? ", …" : "";
+  const ss = p.subscores || {};
+  const pct = (x) => Math.round((x || 0) * 100) + "%";
+  const tier = p.tier || "pocket";
   return `<div class="pocket-card" id="pk-card-${p.index}">
     <div class="pocket-top">
       <span class="pocket-rank">#${p.index + 1}</span>
+      <span class="tier-badge ${tier}" title="pocket = geometric cavity · ligandable = big &amp; enclosed enough · druggable = also chemically favourable">${tier}</span>
       <div class="scorebar"><i style="width:${p.score}%"></i></div>
       <div class="pocket-metrics">
-        <span>score <b>${p.score}</b></span>
+        <span>druggability <b>${p.score}</b></span>
         <span>volume <b>${p.volume_A3} Å³</b></span>
         <span>enclosure <b>${p.enclosure}/7</b></span>
         <span>lining <b>${p.lining_residue_count}</b></span>
@@ -624,6 +628,7 @@ function pocketCard(p) {
         <button class="mini" id="pk-dock-${p.index}">Dock here</button>
       </div>
     </div>
+    <div class="pocket-sub">hydrophobic <b>${pct(ss.hydrophobicity)}</b> · polar/charged <b>${pct(ss.polarity)}</b> · aromatic <b>${pct(ss.aromaticity)}</b></div>
     <div class="pocket-res">Lining residues: ${res}${more}</div>
   </div>`;
 }
@@ -636,7 +641,15 @@ function renderPockets(pk) {
     return;
   }
   c.className = "";
-  c.innerHTML = `<div class="pocket-list">${pk.map(pocketCard).join("")}</div>`;
+  const tiers = { druggable: 0, ligandable: 0, pocket: 0 };
+  pk.forEach((p) => (tiers[p.tier || "pocket"] += 1));
+  const legend = `<div class="tier-legend">
+    <span class="tier-badge druggable">druggable</span> ${tiers.druggable}
+    &nbsp;·&nbsp; <span class="tier-badge ligandable">ligandable</span> ${tiers.ligandable}
+    &nbsp;·&nbsp; <span class="tier-badge pocket">pocket</span> ${tiers.pocket}
+    <span class="hint" style="display:block;margin-top:6px">Tiers (heuristic): <b>pocket</b> = geometric cavity · <b>ligandable</b> = large &amp; enclosed enough for a small molecule · <b>druggable</b> = also chemically favourable (hydrophobic, enclosed, not too polar).</span>
+  </div>`;
+  c.innerHTML = legend + `<div class="pocket-list">${pk.map(pocketCard).join("")}</div>`;
   pk.forEach((p) => {
     c.querySelector(`#pk-show-${p.index}`).addEventListener("click", () => showPocket(p.index));
     c.querySelector(`#pk-dock-${p.index}`).addEventListener("click", () => dockIntoPocket(p.index));
