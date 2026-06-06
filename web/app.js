@@ -716,6 +716,62 @@ function synthesizeFindings() {
   return out;
 }
 
+// Context-aware limitations: only the caveats for modules actually run.
+function reportLimitations() {
+  const L = [];
+  const m = state.meta || {};
+  L.push(
+    "Research-only heuristics computed from a single static structure — every result is a hypothesis to be validated experimentally, not a measurement."
+  );
+  L.push(
+    `Results depend on the deposited structure's quality (${m.experimental_method || "method n/a"}${m.resolution_A ? ", " + m.resolution_A + " Å" : ""}; possible missing atoms/loops or crystallographic artifacts) and on live external data (RCSB, PubChem, ChEMBL, InterPro) that can change over time.`
+  );
+  if (state.selectedComp && state.profile)
+    L.push(
+      "Atomic interactions use heavy-atom distance/geometry criteria with no explicit hydrogens, protonation, or energy minimization — hydrogen bonds and salt bridges may be over- or under-called, and only one conformation is considered."
+    );
+  if ((state.pockets || []).length)
+    L.push(
+      "Pocket detection is purely geometric (LIGSITE) on one static structure: cryptic, allosteric, or induced-fit pockets that require conformational change are likely missed; the pocket / ligandable / druggable tiers are heuristic thresholds, not trained models."
+    );
+  if (state.dockData)
+    L.push(
+      "Docking treats both receptor and ligand as rigid (a single PubChem conformer); the score ranks fit but is NOT calibrated to affinity (kcal/mol); there is no explicit solvent, retained waters/ions, protonation/tautomer handling, or induced fit, and the Monte-Carlo search is stochastic (fixed seed)."
+    );
+  const e = state.evolution;
+  if (e && e.available !== false) {
+    L.push(
+      `Conservation is a family-MSA signal (Pfam, ≤${e.n_sequences} homologs), not a phylogenetic reconstruction; the structure→alignment residue mapping can misregister in low-identity regions.`
+    );
+    if (e.coupling_reliable)
+      L.push(
+        "Coevolution is an APC-corrected mutual-information proxy (not full DCA); the shown network passed a structural-contact confidence check, but couplings are correlative, not causal."
+      );
+    else
+      L.push(
+        "Coevolution was suppressed for this family: the signal failed the structural-contact confidence check (alignment too shallow or divergent), so no network/allosteric flags are reported."
+      );
+    if (e.consensus_identity != null)
+      L.push(
+        "Ancestral divergence uses the family consensus as an ancestral-like proxy — it is NOT a maximum-likelihood ancestral sequence reconstruction (no phylogenetic tree)."
+      );
+  }
+  const hasPharm = (state.dockData && state.dockData.pharmacology) || (state.chemical && state.chemical.pharmacology);
+  if (hasPharm)
+    L.push(
+      "ChEMBL pharmacology coverage is uneven; a name-based target match is approximate (not UniProt-confirmed), and the absence of measured activity does not imply the compound is inactive — it may simply be unstudied here."
+    );
+  if (state.chemical && state.chemical.rules)
+    L.push(
+      "Druglikeness and absorption flags (Lipinski, Veber, Egan, BOILED-Egg) are rule-of-thumb filters using XLogP as a WLogP proxy — not trained ADMET models."
+    );
+  if (state.screen && (state.screen.results || []).length)
+    L.push(
+      "Virtual-screen ranking uses a size-dependent raw score; compare per-atom (ligand efficiency) across different-sized molecules, and all docking limitations above apply to every ranked pose."
+    );
+  return L;
+}
+
 function compileReport() {
   const c = $("#reportContent");
   if (!state.pdbId) {
@@ -744,6 +800,8 @@ function compileReport() {
     if (sec.hypotheses && sec.hypotheses.length)
       html += `<ul class="hyp-list" style="margin-top:8px">${sec.hypotheses.map((h) => `<li>${h}</li>`).join("")}</ul>`;
   });
+
+  html += `<div class="section-h">Limitations &amp; caveats</div><ul class="limitations">${reportLimitations().map((x) => `<li>${x}</li>`).join("")}</ul>`;
 
   if (state.methods) html += methodsHTML(state.methods);
   html += `<div class="disclaimer">Research-only. AtomScope interactions, docking, pockets, and coevolution are geometric/empirical/statistical heuristics from a single static structure and family alignment — not affinities, structures, or clinical guidance. Validate with orthogonal evidence.</div>`;
@@ -1324,6 +1382,11 @@ function exportReport() {
     if (mm.ligand) L.push(`  Ligand: PubChem CID ${mm.ligand.cid}, ${mm.ligand.conformer} conformer, ${mm.ligand.n_heavy_atoms} heavy atoms, ${mm.ligand.flexibility}`);
     L.push("");
   }
+
+  L.push("LIMITATIONS & CAVEATS");
+  L.push(rule("-"));
+  reportLimitations().forEach((x, i) => L.push(`  ${i + 1}. ${x}`));
+  L.push("");
 
   L.push(rule("="));
   L.push("Research-only. Heuristic predictions from a single static structure + family alignment. Not affinities or clinical guidance; validate with orthogonal evidence.");
