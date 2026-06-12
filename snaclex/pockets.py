@@ -175,6 +175,9 @@ def detect_pockets(structure: Structure, max_pockets: int = 6) -> list[dict]:
         lining = _lining_residues(coords, cell)
         volume = n * voxel_vol
         assessment = _assess(volume, mean_psp, lining)
+        # Subsampled cavity point cloud so the UI can render the true shape.
+        step = max(1, len(coords) // 180)
+        cloud = [[round(c, 2) for c in coords[k]] for k in range(0, len(coords), step)][:180]
         results.append(
             {
                 "index": ci,
@@ -184,6 +187,7 @@ def detect_pockets(structure: Structure, max_pockets: int = 6) -> list[dict]:
                 "enclosure": round(mean_psp, 2),
                 "lining_residues": lining,
                 "lining_residue_count": len(lining),
+                "points": cloud,
                 "score": assessment["druggability_score"],
                 "tier": assessment["tier"],
                 "subscores": assessment["subscores"],

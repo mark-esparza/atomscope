@@ -319,16 +319,31 @@ function rebuildScene(resetZoom) {
   // detected pocket: translucent sphere at cavity center + lining residues
   if (state.pocketView) {
     const p = state.pocketView;
-    const r = Math.cbrt((3 * p.volume_A3) / (4 * Math.PI));
-    v.addSphere({
-      center: { x: p.center[0], y: p.center[1], z: p.center[2] },
-      radius: Math.max(2.0, Math.min(r, 9.0)),
-      color: 0x333333,
-      opacity: 0.25,
-    });
+    const cloud = p.points || [];
+    if (cloud.length) {
+      // True cavity shape: the LIGSITE point cloud as a translucent fill.
+      cloud.forEach((pt) =>
+        v.addSphere({ center: { x: pt[0], y: pt[1], z: pt[2] }, radius: 0.62, color: 0x5b8def, opacity: 0.42 })
+      );
+    } else {
+      const r = Math.cbrt((3 * p.volume_A3) / (4 * Math.PI));
+      v.addSphere({ center: { x: p.center[0], y: p.center[1], z: p.center[2] }, radius: Math.max(2.0, Math.min(r, 9.0)), color: 0x333333, opacity: 0.25 });
+    }
     p.lining_residues.forEach((rr) =>
       v.addStyle({ chain: rr.chain, resi: rr.res_seq }, { stick: { radius: 0.12, color: "#808080" } })
     );
+    // Pocket-wall molecular surface (the lining-residue surface around the cavity).
+    const byChain = {};
+    p.lining_residues.forEach((rr) => {
+      (byChain[rr.chain] = byChain[rr.chain] || []).push(rr.res_seq);
+    });
+    Object.entries(byChain).forEach(([ch, resis]) => {
+      try {
+        v.addSurface($3Dmol.SurfaceType.SAS, { opacity: 0.5, color: "#aac6ec" }, { chain: ch, resi: resis });
+      } catch (e) {
+        /* surface optional */
+      }
+    });
   }
 
   // coevolution network: lines between co-evolving residue pairs + hub sticks
