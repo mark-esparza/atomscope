@@ -64,6 +64,7 @@
         <button class="tab" data-tab="pockets">Pockets</button>
         <button class="tab" data-tab="evolution">Evolution</button>
         <button class="tab" data-tab="docking">Docking</button>
+        <button class="tab" data-tab="benchmark">Benchmark</button>
         <button class="tab" data-tab="chemical">Chemical</button>
         <button class="tab" data-tab="report">Report</button>
       </nav>
@@ -146,6 +147,16 @@
           <div class="hint" style="margin-top:8px">Docks every chemical into the same target (one shared grid) and ranks them by predicted fit. Uses the target set above.</div>
           <div id="screenContent"></div>
         </div>
+      </section>
+
+      <section class="panel" data-panel="benchmark">
+        <div class="pocket-controls" style="flex-wrap:wrap">
+          <button id="benchLoadedBtn" class="primary">Benchmark loaded structure</button>
+          <span class="hint" style="margin:0">Re-docks a known ligand into its own crystallographic site and reports how well SnaCleX recovers it — pocket, pose RMSD, interactions, and physical plausibility. The honest accuracy readout behind the tool.</span>
+        </div>
+        <div class="section-h">Known cases</div>
+        <div id="benchmarkCases" class="examples">Loading curated cases…</div>
+        <div id="benchmarkContent" class="empty">Pick a known case above, or benchmark the loaded structure's ligand.</div>
       </section>
 
       <section class="panel" data-panel="chemical">

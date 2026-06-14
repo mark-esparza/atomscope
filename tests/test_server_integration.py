@@ -226,6 +226,49 @@ class TestServerIntegration(unittest.TestCase):
             resp, _ = self._get("/api/analyze?pdb=TST3&chain=Z")
         self.assertEqual(resp.status, 404)
 
+    # ---- Benchmark Mode ----------------------------------------------
+    def test_benchmark_cases_listed(self):
+        resp, body = self._get("/api/benchmark/cases")
+        self.assertEqual(resp.status, 200)
+        cases = json.loads(body)["cases"]
+        self.assertTrue(cases)
+        self.assertTrue(all("pdb" in c for c in cases))
+
+    def _structure_with_ligand(self):
+        from tests.fixtures import atom, component, structure
+        prot = [atom("N", 3, 0, 0, name="N", res_name="ALA", chain="A", res_seq=i)
+                for i in range(12)]
+        lig = component("LIG", [
+            atom("O", 0, 0, 0, hetero=True, res_name="LIG", chain="B", res_seq=900),
+            atom("C", 1.4, 0, 0, hetero=True, res_name="LIG", chain="B", res_seq=900),
+            atom("C", 1.4, 1.4, 0, hetero=True, res_name="LIG", chain="B", res_seq=900),
+        ], chain="B", res_seq=900)
+        return structure(prot, [lig])
+
+    def test_benchmark_job(self):
+        s = self._structure_with_ligand()
+        meta = {"pdb_id": "BENCH", "title": "Bench case"}
+        with mock.patch.object(server, "_load_structure",
+                               return_value=("ATOMS", s, meta)):
+            resp, body = self._post("/api/jobs", {"kind": "benchmark",
+                                                  "params": {"pdb": "BENCH"}})
+            self.assertEqual(resp.status, 202)
+            job_id = json.loads(body)["job_id"]
+            for _ in range(200):
+                _r, b = self._get(f"/api/jobs/{job_id}")
+                st = json.loads(b)
+                if st["status"] == "done":
+                    res = st["result"]
+                    self.assertIn("pocket", res)
+                    self.assertIn("physical_plausibility", res)
+                    self.assertIn("interactions_total", res)
+                    break
+                if st["status"] == "error":
+                    self.fail(f"benchmark job errored: {st['error']}")
+                time.sleep(0.05)
+            else:
+                self.fail("benchmark job did not finish")
+
 
 def _pdb_line(rec, serial, name, res, chain, seq, x, y, z, el):
     return (f"{rec:<6}{serial:>5} {name:<4} {res:>3} {chain}{seq:>4}    "

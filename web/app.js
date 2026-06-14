@@ -1943,6 +1943,87 @@ function exportPosePDB() {
   setStatus("Downloaded docked pose (.pdb).");
 }
 
+// ================= Benchmark Mode =================
+async function loadBenchmarkCases() {
+  const box = $("#benchmarkCases");
+  if (!box) return;
+  try {
+    const data = await getJSON("/api/benchmark/cases");
+    box.innerHTML =
+      (data.cases || [])
+        .map(
+          (c) =>
+            `<button class="ex bench-case" data-pdb="${escapeHtml(c.pdb)}" ` +
+            `data-ligand="${escapeHtml(c.ligand || "")}" ` +
+            `data-name="${escapeHtml(c.name || c.ligand || "")}" ` +
+            `title="${escapeHtml(c.site || "")}">` +
+            `${escapeHtml(c.pdb)} · ${escapeHtml(c.name || c.ligand || "")}</button>`
+        )
+        .join(" ") || "No cases.";
+    box.querySelectorAll(".bench-case").forEach((b) =>
+      b.addEventListener("click", () =>
+        runBenchmark(
+          { pdb: b.dataset.pdb, ligand: b.dataset.ligand },
+          `${b.dataset.pdb} · ${b.dataset.name}`
+        )
+      )
+    );
+  } catch (err) {
+    box.textContent = "Could not load benchmark cases: " + err.message;
+  }
+}
+
+async function runBenchmark(params, label) {
+  switchTab("benchmark");
+  setStatus(`Benchmarking ${label} — re-docking the known ligand and checking recovery…`, "busy");
+  const c = $("#benchmarkContent");
+  c.className = "empty";
+  c.textContent = "Running…";
+  try {
+    const r = await submitJob("benchmark", params);
+    renderBenchmark(r, label);
+    setStatus(
+      `Benchmark ${label}: pose RMSD ` +
+        `${r.pose_rmsd_A == null ? "n/a" : r.pose_rmsd_A + " Å"}, ` +
+        `${r.interactions_recovered}/${r.interactions_total} interactions, ` +
+        `plausibility ${r.physical_plausibility}.`
+    );
+  } catch (err) {
+    c.className = "empty";
+    c.textContent = `Benchmark failed: ${err.message}`;
+    setStatus(`Benchmark failed: ${err.message}`, "error");
+  }
+}
+
+function renderBenchmark(r, label) {
+  const c = $("#benchmarkContent");
+  c.className = "";
+  const pk = r.pocket || {};
+  const cls = (ok) => (ok ? "bench-pass" : "bench-fail");
+  const rmsd = r.pose_rmsd_A == null ? "n/a" : `${r.pose_rmsd_A} Å`;
+  const recDetail =
+    pk.distance_A == null
+      ? ""
+      : ` <span class="muted">(${pk.distance_A} Å from crystal site · rank #${pk.rank} of ${pk.n_pockets})</span>`;
+  const title = r.receptor
+    ? `${escapeHtml(r.receptor.pdb_id || "")} — ${escapeHtml(r.receptor.title || "")}`
+    : escapeHtml(label);
+  c.innerHTML = `
+    <div class="bench-card">
+      <div class="bench-head">${title}
+        <div class="muted">Known ligand: ${escapeHtml(r.ligand)} · ${r.n_heavy_atoms} heavy atoms</div>
+      </div>
+      <table class="bench-table">
+        <tr><td>Pocket recovered</td><td class="${cls(pk.recovered)}">${pk.recovered ? "yes" : "no"}${recDetail}</td></tr>
+        <tr><td>Pose RMSD</td><td class="${cls(r.rmsd_success)}">${rmsd}${r.rmsd_success ? ` ✓ (≤${r.rmsd_success_threshold_A} Å)` : ""}</td></tr>
+        <tr><td>Interactions recovered</td><td>${r.interactions_recovered} / ${r.interactions_total} residues</td></tr>
+        <tr><td>Physical plausibility</td><td class="${cls(r.physical_plausibility === "pass")}">${escapeHtml(r.physical_plausibility)}</td></tr>
+      </table>
+      <div class="bench-res muted">Recovered residues: ${(r.recovered_residues || []).map(escapeHtml).join(", ") || "none"}</div>
+      ${methodsHTML(r.methods)}
+    </div>`;
+}
+
 // ================= wiring =================
 function init() {
   $("#loadBtn").addEventListener("click", () => smartLoad($("#pdbInput").value));
@@ -1956,6 +2037,16 @@ function init() {
       if (file) uploadStructure(file);
       e.target.value = "";  // allow re-uploading the same filename
     });
+  const benchBtn = $("#benchLoadedBtn");
+  if (benchBtn)
+    benchBtn.addEventListener("click", () => {
+      if (!state.pdbId) {
+        setStatus("Load a structure first.", "error");
+        return;
+      }
+      runBenchmark({ pdb: state.pdbId }, state.pdbId);
+    });
+  loadBenchmarkCases();
   $("#chemBtn").addEventListener("click", () => lookupChemical($("#chemInput").value));
   $("#chemInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") lookupChemical($("#chemInput").value);

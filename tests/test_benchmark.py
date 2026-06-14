@@ -94,6 +94,51 @@ class TestRun(unittest.TestCase):
         self.assertIn("run_utc", res)
 
 
+class TestPocketRecovery(unittest.TestCase):
+    def test_recovered_when_close(self):
+        pockets = [{"center": [0.5, 0, 0], "index": 0},
+                   {"center": [10, 0, 0], "index": 1}]
+        r = benchmark.pocket_recovery(pockets, (0.0, 0.0, 0.0), tol_A=6.0)
+        self.assertTrue(r["recovered"])
+        self.assertEqual(r["rank"], 1)
+        self.assertEqual(r["n_pockets"], 2)
+
+    def test_not_recovered_when_far(self):
+        pockets = [{"center": [10, 0, 0], "index": 0}]
+        r = benchmark.pocket_recovery(pockets, (0.0, 0.0, 0.0), tol_A=6.0)
+        self.assertFalse(r["recovered"])
+
+    def test_no_pockets(self):
+        r = benchmark.pocket_recovery([], (0, 0, 0))
+        self.assertFalse(r["recovered"])
+        self.assertIsNone(r["distance_A"])
+
+
+class TestClash(unittest.TestCase):
+    def test_detects_overlap(self):
+        s = structure([atom("C", 0, 0, 0, res_seq=1)])
+        pose = {"pose_coords": [(0.5, 0, 0)], "elements": ["C"]}
+        self.assertTrue(benchmark._has_clash(pose, s, tol_A=2.0))
+
+    def test_no_clash_when_separated(self):
+        s = structure([atom("C", 0, 0, 0, res_seq=1)])
+        pose = {"pose_coords": [(10.0, 0, 0)], "elements": ["C"]}
+        self.assertFalse(benchmark._has_clash(pose, s, tol_A=2.0))
+
+
+class TestBenchmarkCase(unittest.TestCase):
+    def test_reports_all_metrics(self):
+        s, lig = _receptor_with_ligand()
+        out = benchmark.benchmark_case(s, lig, seeds=8, mc_steps=4, seed=1)
+        for key in ("pocket", "pose_rmsd_A", "rmsd_success",
+                    "interactions_recovered", "interactions_total",
+                    "physical_plausibility"):
+            self.assertIn(key, out)
+        self.assertIn(out["physical_plausibility"], ("pass", "fail"))
+        self.assertIsInstance(out["pocket"], dict)
+        self.assertLessEqual(out["interactions_recovered"], out["interactions_total"])
+
+
 class TestDockingBenchmarkProvenance(unittest.TestCase):
     def test_missing_file_returns_none(self):
         self.assertIsNone(provenance.docking_benchmark(path="/no/such/file.json"))

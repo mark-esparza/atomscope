@@ -23,11 +23,12 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import statistics
 import sys
 
-from . import docking, pdbparse, rcsb
+from . import docking, interactions, pdbparse, pockets, rcsb
 
 
 def _ligand_atoms(component):
@@ -55,6 +56,93 @@ def redock_case(structure, component, *, seeds=220, mc_steps=40, seed=0):
         "n_heavy_atoms": len(heavy),
         "score": pose["score"],
         "rmsd": docking.rmsd_to_reference(pose, component),
+    }
+
+
+def pocket_recovery(pockets_found, center, tol_A=6.0):
+    """Did pocket detection recover the known site? Nearest pocket to `center`."""
+    best = None
+    for p in pockets_found:
+        d = math.dist(p["center"], center)
+        if best is None or d < best[0]:
+            best = (d, p["index"])
+    if best is None:
+        return {"recovered": False, "distance_A": None, "rank": None, "n_pockets": 0}
+    dist, idx = best
+    return {
+        "recovered": dist <= tol_A,
+        "distance_A": round(dist, 2),
+        "rank": idx + 1,
+        "n_pockets": len(pockets_found),
+    }
+
+
+def _has_clash(pose, structure, tol_A=2.0):
+    """True if any pose heavy atom overlaps a protein heavy atom (< tol_A)."""
+    cell = 5.0
+    buckets = {}
+    for a in structure.protein_atoms:
+        if a.element == "H":
+            continue
+        k = (int(a.x // cell), int(a.y // cell), int(a.z // cell))
+        buckets.setdefault(k, []).append(a)
+    tol2 = tol_A * tol_A
+    for (x, y, z) in pose["pose_coords"]:
+        cx, cy, cz = int(x // cell), int(y // cell), int(z // cell)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for a in buckets.get((cx + dx, cy + dy, cz + dz), ()):
+                        if (x - a.x) ** 2 + (y - a.y) ** 2 + (z - a.z) ** 2 < tol2:
+                            return True
+    return False
+
+
+def benchmark_case(structure, component, *, seeds=220, mc_steps=40, seed=0,
+                   pocket_tol_A=6.0, clash_tol_A=2.0, rmsd_success_A=2.0):
+    """Evaluate SnaCleX against one known protein–ligand case.
+
+    Self-docks the crystallographic ligand back into its own site and reports the
+    research-credibility metrics: pocket recovery, pose RMSD, fraction of the
+    experimental contact residues recovered, and a physical-plausibility (no
+    severe clash) pass/fail.
+    """
+    center = docking.component_center(component)
+    ref_heavy = [a for a in component.atoms if a.element != "H"]
+    lig_atoms = [{"element": a.element, "x": a.x, "y": a.y, "z": a.z} for a in ref_heavy]
+
+    grid = docking.build_grid(structure, center)
+    pose = docking.dock_with_grid(
+        grid, lig_atoms, center, seeds=seeds, mc_steps=mc_steps, seed=seed
+    )
+    rmsd = docking.rmsd_to_reference(pose, component)
+
+    rec = pocket_recovery(pockets.detect_pockets(structure), center, pocket_tol_A)
+
+    ref_prof = interactions.profile_component(structure, component)
+    pose_comp = docking.pose_to_component(pose, component.res_name)
+    pose_prof = interactions.profile_component(structure, pose_comp)
+    ref_res = {r["res_id"] for r in ref_prof["contact_residues"]}
+    pose_res = {r["res_id"] for r in pose_prof["contact_residues"]}
+    recovered = sorted(ref_res & pose_res)
+
+    clash = _has_clash(pose, structure, clash_tol_A)
+
+    return {
+        "ligand": component.label,
+        "ligand_res_name": component.res_name,
+        "n_heavy_atoms": len(ref_heavy),
+        "pocket": rec,
+        "pose_rmsd_A": rmsd,
+        "rmsd_success": rmsd is not None and rmsd <= rmsd_success_A,
+        "rmsd_success_threshold_A": rmsd_success_A,
+        "interactions_recovered": len(recovered),
+        "interactions_total": len(ref_res),
+        "recovered_residues": recovered,
+        "reference_residues": sorted(ref_res),
+        "physical_plausibility": "fail" if clash else "pass",
+        "score": pose["score"],
+        "search": pose["search"],
     }
 
 

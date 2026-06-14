@@ -27,6 +27,7 @@ import datetime
 from snaclex import __version__ as SNACLEX_VERSION
 from snaclex import (
     apidocs,
+    benchmark,
     chembl,
     docking,
     evolution,
@@ -618,9 +619,56 @@ def run_screen_job(params: dict) -> dict:
     }
 
 
+# Curated known cases for Benchmark Mode (research-credibility checks). The
+# server falls back to the largest ligand if the named residue isn't present,
+# so a slightly-off resname still benchmarks the main ligand.
+BENCHMARK_CASES = [
+    {"pdb": "1HSG", "ligand": "MK1", "name": "indinavir",
+     "site": "HIV-1 protease active site"},
+    {"pdb": "3PTB", "ligand": "BEN", "name": "benzamidine",
+     "site": "trypsin S1 pocket"},
+    {"pdb": "4DFR", "ligand": "MTX", "name": "methotrexate",
+     "site": "dihydrofolate reductase folate site"},
+]
+
+
+def _resolve_benchmark_component(structure, params):
+    comp_raw = params.get("comp")
+    if comp_raw not in (None, ""):
+        idx = int(comp_raw)
+        if idx < 0 or idx >= len(structure.components):
+            raise ValueError("Component index out of range")
+        return structure.components[idx]
+    ligs = structure.ligand_components
+    if not ligs:
+        raise ValueError("No bound ligand in this structure to benchmark.")
+    wanted = clean_text(params.get("ligand") or "", max_len=8).upper()
+    if wanted:
+        matches = [c for c in structure.components if c.res_name.upper() == wanted]
+        if matches:
+            return max(matches, key=lambda c: len(c.atoms))
+    # Fall back to the largest ligand component.
+    return max(ligs, key=lambda c: len(c.atoms))
+
+
+def run_benchmark_job(params: dict) -> dict:
+    pdb_id = params.get("pdb") or ""
+    if not pdb_id:
+        raise ValueError("Need 'pdb'")
+    _text, structure, meta = _load_structure(pdb_id)
+    comp = _resolve_benchmark_component(structure, params)
+    result = benchmark.benchmark_case(structure, comp)
+    result["receptor"] = {"pdb_id": meta.get("pdb_id"), "title": meta.get("title")}
+    result["methods"] = _methods_block(
+        meta, comp.label, docking.component_center(comp), result["search"]
+    )
+    return result
+
+
 _JOB_RUNNERS = {
     "dock": run_dock_job,
     "screen": run_screen_job,
+    "benchmark": run_benchmark_job,
 }
 
 
@@ -749,6 +797,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_version(qs)
         if path == "/api/docs":
             return self._send_json(apidocs.contract())
+        if path == "/api/benchmark/cases":
+            return self._send_json({"cases": BENCHMARK_CASES})
         if path.startswith("/api/jobs/"):
             return self._api_job_status(path)
         return self._serve_static(path)

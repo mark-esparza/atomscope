@@ -63,9 +63,18 @@ _ENDPOINTS = [
     },
     {
         "method": "POST", "path": "/api/jobs",
-        "body": {"kind": "'dock' | 'screen'", "params": "kind-specific params object"},
+        "body": {"kind": "'dock' | 'screen' | 'benchmark'",
+                 "params": "kind-specific params object"},
         "returns": "202 with {job_id, status}; poll GET /api/jobs/{id}",
-        "notes": "dock params: pdb, chem, comp|pocket. screen params: pdb, chems, comp|pocket.",
+        "notes": "dock: {pdb, chem, comp|pocket}. screen: {pdb, chems, comp|pocket}. "
+                 "benchmark: {pdb, ligand|comp} — redocks the known ligand and "
+                 "reports pocket recovery, pose RMSD, interactions recovered, and "
+                 "physical plausibility.",
+    },
+    {
+        "method": "GET", "path": "/api/benchmark/cases",
+        "params": {},
+        "returns": "curated known protein–ligand cases for Benchmark Mode",
     },
     {
         "method": "GET", "path": "/api/jobs/{id}",

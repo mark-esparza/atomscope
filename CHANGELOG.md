@@ -25,6 +25,14 @@ All notable changes to SnaCleX are documented here. This project adheres to
   (`docs/qa-checklist.md`).
 
 ### Added
+- **Benchmark Mode** — a new tab and `benchmark` job kind that runs SnaCleX
+  against known protein–ligand cases and reports research-credibility metrics:
+  **pocket recovered** (yes/no + distance/rank vs the crystal site), **pose
+  RMSD** (re-docking the known ligand into its own site), **interactions
+  recovered** (Y/Z of the experimental contact residues), and **physical
+  plausibility** (pass/fail clash check). Curated cases (1HSG/indinavir,
+  3PTB/benzamidine, 4DFR/methotrexate) are served from `GET /api/benchmark/cases`;
+  any loaded structure's ligand can also be benchmarked. (`benchmark.benchmark_case`)
 - **Per-chain loading for large assemblies** — when a structure exceeds the
   interactive atom limit, `/api/analyze` returns its chain list
   (`{too_large, n_atoms, limit, chains:[{chain, atom_count}]}`) and the UI shows
@@ -130,7 +138,7 @@ All notable changes to SnaCleX are documented here. This project adheres to
 - **Privacy & Terms pages** (`web/privacy.html`, `web/terms.html`) linked from a
   new site footer: no accounts/cookies/trackers, what's collected, third-party
   data sources, retention, and the research-only disclaimer.
-- **Test suite** (`tests/`) — 120 stdlib `unittest` cases covering the
+- **Test suite** (`tests/`) — 128 stdlib `unittest` cases covering the
   pure-compute core (`pdbparse`, `interactions`, `docking`, `pockets`,
   `report`) plus the PubChem/RCSB helpers. Runs fully offline; the HTTP fetch
   layer (`http_util`) is exercised via a mock seam (retry/backoff, fast-fail on
