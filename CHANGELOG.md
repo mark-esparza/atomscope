@@ -5,6 +5,16 @@ All notable changes to SnaCleX are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Testing & CI
+- **Browser end-to-end smoke test** (`e2e/`, Playwright) — boots the real server
+  and drives Chromium through load → pick a bound molecule → interactions, and
+  **asserts no uncaught JS error** fires (the audit's P0: the front end had only
+  ever been syntax-checked). Runs fully offline via a pre-seeded disk cache (no
+  upstream calls), in a separate CI workflow (`.github/workflows/e2e.yml`) so the
+  core stdlib suite stays dependency-free. Playwright is a dev/CI-only dep
+  (`requirements-dev.txt`). Plus a pre-deploy **manual QA checklist**
+  (`docs/qa-checklist.md`).
+
 ### Added
 - **Per-chain loading for large assemblies** — when a structure exceeds the
   interactive atom limit, `/api/analyze` returns its chain list

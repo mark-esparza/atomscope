@@ -1,0 +1,7 @@
+# Development / CI-only dependencies. NOT installed in production — SnaCleX's
+# runtime stays pure standard library (see requirements.txt).
+#
+# Used by the browser end-to-end smoke tests in e2e/. After installing, run:
+#   python -m playwright install chromium
+#   python -m unittest discover -s e2e -v
+playwright>=1.40
