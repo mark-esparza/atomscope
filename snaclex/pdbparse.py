@@ -210,6 +210,34 @@ def _cif_tokens(line: str) -> list[str]:
     return out
 
 
+def to_pdb(structure: Structure) -> str:
+    """Serialize a parsed Structure back to PDB-format ATOM/HETATM text.
+
+    Lets the 3Dmol viewer (which reads "pdb") render structures that arrived as
+    mmCIF. PDB format caps serials at 99,999 and chain ids at one character, so
+    this is only valid for structures within those limits (the size guard in the
+    server enforces that before calling here).
+    """
+    lines = []
+    for i, a in enumerate(structure.atoms, start=1):
+        if i > 99999:
+            break
+        rec = "HETATM" if a.is_hetero else "ATOM  "
+        name = (a.name or "")[:4]
+        nm = name if len(name) >= 4 else " " + name
+        chain = (a.chain or "A")[:1]
+        res = (a.res_name or "")[:3]
+        icode = ((a.icode or " ")[:1]) or " "
+        el = (a.element or "")[:2].upper()
+        lines.append(
+            f"{rec}{i:>5} {nm:<4} {res:>3} {chain}{a.res_seq:>4}{icode}   "
+            f"{a.x:8.3f}{a.y:8.3f}{a.z:8.3f}{a.occupancy:6.2f}{a.bfactor:6.2f}"
+            f"          {el:>2}"
+        )
+    lines.append("END")
+    return "\n".join(lines)
+
+
 def _cif_value(row: dict, *names, default: str = "") -> str:
     """First present, non-placeholder value among `names` ('.'/'?' mean unset)."""
     for n in names:

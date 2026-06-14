@@ -10,6 +10,14 @@ All notable changes to SnaCleX are documented here. This project adheres to
   `files.rcsb.org/download/*.pdb`). `rcsb.fetch_structure` falls back to the
   mmCIF (`.cif`) file, and a new `pdbparse.parse_mmcif` / `parse_structure`
   auto-detects and parses the `_atom_site` loop. mmCIF uploads are accepted too.
+- **mmCIF structures render in the viewer** — the 3Dmol viewer only reads PDB
+  format, so the server now re-serializes mmCIF-sourced structures to PDB
+  (`pdbparse.to_pdb`) before sending them. Previously they were handed to 3Dmol
+  as `"pdb"` and failed to display.
+- **Oversized structures no longer freeze the page** — entries above the
+  PDB-format / interactive limit (99,999 atoms; `SNACLEX_MAX_ATOMS`) are
+  rejected with a clear `413` message instead of timing out the tab. mmCIF-only
+  mega-assemblies are exactly this case.
 
 ### API contract & custom structures (Phase 6)
 - **Documented API** — `snaclex/apidocs.py` serves a machine-readable contract at
@@ -94,7 +102,7 @@ All notable changes to SnaCleX are documented here. This project adheres to
 - **Privacy & Terms pages** (`web/privacy.html`, `web/terms.html`) linked from a
   new site footer: no accounts/cookies/trackers, what's collected, third-party
   data sources, retention, and the research-only disclaimer.
-- **Test suite** (`tests/`) — 111 stdlib `unittest` cases covering the
+- **Test suite** (`tests/`) — 116 stdlib `unittest` cases covering the
   pure-compute core (`pdbparse`, `interactions`, `docking`, `pockets`,
   `report`) plus the PubChem/RCSB helpers. Runs fully offline; the HTTP fetch
   layer (`http_util`) is exercised via a mock seam (retry/backoff, fast-fail on

@@ -110,6 +110,18 @@ class TestParseMmcif(unittest.TestCase):
         n_atom = next(a for a in s.protein_atoms if a.name == "N")
         self.assertAlmostEqual(n_atom.x, 1.0)
 
+    def test_to_pdb_roundtrip(self):
+        # mmCIF -> Structure -> PDB text -> Structure preserves atoms/coords, so
+        # the 3Dmol viewer (which reads "pdb") can render an mmCIF-sourced entry.
+        s1 = pdbparse.parse_mmcif(self.text)
+        pdb_text = pdbparse.to_pdb(s1)
+        s2 = pdbparse.parse_pdb(pdb_text)
+        self.assertEqual(len(s2.protein_atoms), len(s1.protein_atoms))
+        self.assertEqual(len(s2.atoms), len(s1.atoms))
+        n_atom = next(a for a in s2.protein_atoms if a.name == "N")
+        self.assertAlmostEqual(n_atom.x, 1.0)
+        self.assertTrue(pdb_text.strip().endswith("END"))
+
 
 if __name__ == "__main__":
     unittest.main()

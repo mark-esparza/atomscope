@@ -108,6 +108,15 @@ EXPENSIVE_ENDPOINTS = {"/api/pockets", "/api/evolution"}
 MAX_QUERY_LEN = 200       # single chemical / search term
 MAX_CHEMS_LEN = 2000      # batch-screening textarea
 
+# A structure must fit PDB-format limits and stay interactive in the browser.
+# Bigger entries (often mmCIF-only mega-assemblies) are rejected with a clear
+# message instead of freezing the tab. Capped at the PDB serial limit (99,999).
+try:
+    MAX_STRUCTURE_ATOMS = min(99_999, int(os.environ.get("SNACLEX_MAX_ATOMS") or 99_999))
+except ValueError:
+    MAX_STRUCTURE_ATOMS = 99_999
+MAX_STRUCTURE_BYTES = 30_000_000
+
 
 def _env_float(name, default):
     raw = os.environ.get(name)
@@ -179,6 +188,17 @@ def clean_text(value, max_len=MAX_QUERY_LEN):
     return v.strip()[:max_len]
 
 
+def _check_structure_size(structure, label):
+    """Reject structures too large for PDB format / interactive rendering."""
+    n = len(structure.atoms)
+    if n > MAX_STRUCTURE_ATOMS:
+        raise FetchError(
+            f"{label} has {n:,} atoms — too large for interactive analysis "
+            f"(limit {MAX_STRUCTURE_ATOMS:,}). Try a single chain or the "
+            f"asymmetric unit."
+        )
+
+
 def _load_structure(pdb_id: str):
     # User-uploaded structures live in their own cache, keyed by upload id.
     with _UPLOAD_LOCK:
@@ -193,7 +213,15 @@ def _load_structure(pdb_id: str):
         return cached
 
     text = rcsb.fetch_structure(pid)
+    if len(text) > MAX_STRUCTURE_BYTES:
+        raise FetchError(
+            f"{pid} structure file is too large to load interactively."
+        )
     structure = pdbparse.parse_structure(text)
+    _check_structure_size(structure, pid)
+    # The viewer reads PDB format, so re-serialize mmCIF-sourced structures.
+    if "_atom_site." in text:
+        text = pdbparse.to_pdb(structure)
     try:
         meta = rcsb.fetch_entry_metadata(pid)
     except FetchError:
@@ -738,6 +766,8 @@ class Handler(BaseHTTPRequestHandler):
     def _guarded_upload(self):
         try:
             return self._api_upload()
+        except FetchError as exc:  # size guard et al. — surface the message
+            return self._send_error_json(str(exc), status=413)
         except Exception as exc:  # noqa: BLE001
             return self._send_error_json(f"Could not parse structure: {exc}")
 
@@ -757,13 +787,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error_json(
                 "No protein atoms found — is this a valid PDB/mmCIF file?"
             )
+        _check_structure_size(structure, "This file")
+
+        # The viewer reads PDB format, so re-serialize mmCIF uploads.
+        viewer_text = pdbparse.to_pdb(structure) if "_atom_site." in raw else raw
 
         upload_id = "UL" + uuid.uuid4().hex[:10]
         meta = {"pdb_id": upload_id, "title": "Uploaded structure", "uploaded": True}
         with _UPLOAD_LOCK:
             if len(_UPLOAD_CACHE) >= _UPLOAD_MAX:
                 _UPLOAD_CACHE.pop(next(iter(_UPLOAD_CACHE)))
-            _UPLOAD_CACHE[upload_id] = (raw, structure, meta)
+            _UPLOAD_CACHE[upload_id] = (viewer_text, structure, meta)
 
         return self._send_json({
             "upload_id": upload_id,
@@ -771,7 +805,7 @@ class Handler(BaseHTTPRequestHandler):
             "chains": structure.chains,
             "protein_atom_count": len(structure.protein_atoms),
             "components": _components_json(structure),
-            "pdb_data": raw,
+            "pdb_data": viewer_text,
         })
 
     def _api_job_status(self, path):

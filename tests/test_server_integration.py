@@ -164,9 +164,22 @@ class TestServerIntegration(unittest.TestCase):
         from tests.fixtures import mmcif_text
         rows = [{"element": "C", "name": f"C{i}", "seq": i, "x": float(i)}
                 for i in range(12)]
-        resp, body = self._post_raw("/api/upload", mmcif_text(rows))
+        body_text = mmcif_text(rows)
+        resp, body = self._post_raw("/api/upload", body_text)
         self.assertEqual(resp.status, 200)
-        self.assertTrue(json.loads(body)["upload_id"].startswith("UL"))
+        up = json.loads(body)
+        self.assertTrue(up["upload_id"].startswith("UL"))
+        # The viewer payload is re-serialized to PDB format, not raw mmCIF.
+        self.assertNotIn("_atom_site.", up["pdb_data"])
+        self.assertIn("ATOM", up["pdb_data"])
+
+    def test_upload_rejects_oversized(self):
+        from tests.fixtures import mmcif_text
+        rows = [{"element": "C", "name": f"C{i}", "seq": i} for i in range(12)]
+        with mock.patch.object(server, "MAX_STRUCTURE_ATOMS", 5):
+            resp, body = self._post_raw("/api/upload", mmcif_text(rows))
+        self.assertEqual(resp.status, 413)
+        self.assertIn("too large", json.loads(body)["error"])
 
 
 def _pdb_line(rec, serial, name, res, chain, seq, x, y, z, el):
