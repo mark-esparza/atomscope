@@ -139,7 +139,7 @@ async function loadStructure(pdbId, chain) {
   setStatus(
     chain
       ? `Loading ${pdbId} chain ${chain}…`
-      : `Fetching ${pdbId} from RCSB and parsing atoms…`,
+      : `Retrieving ${pdbId} from the RCSB PDB and parsing atoms…`,
     "busy"
   );
   $("#loadBtn").disabled = true;
@@ -1460,7 +1460,7 @@ async function runEvolution() {
     return;
   }
   switchTab("evolution");
-  setStatus("Fetching the Pfam family alignment, scoring conservation and computing coevolution — up to ~30s…", "busy");
+  setStatus("Retrieving the Pfam family alignment, scoring conservation and computing coevolution — up to ~30s…", "busy");
   $("#evoBtn").disabled = true;
   try {
     const data = await getJSON(`/api/evolution?pdb=${state.pdbId}`);
@@ -1949,13 +1949,6 @@ function init() {
   $("#pdbInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") smartLoad($("#pdbInput").value);
   });
-  document.querySelectorAll(".ex").forEach((a) =>
-    a.addEventListener("click", (e) => {
-      e.preventDefault();
-      $("#pdbInput").value = a.dataset.pdb;
-      loadStructure(a.dataset.pdb);
-    })
-  );
   const upload = $("#uploadInput");
   if (upload)
     upload.addEventListener("change", (e) => {

@@ -30,12 +30,6 @@
           <button id="loadBtn" class="primary">Go</button>
         </div>
         <div class="hint">Enter a 4-character <b>PDB ID</b> to load it, or a <b>name</b> to search RCSB.</div>
-        <div class="examples">
-          Try an example:
-          <button class="ex" data-pdb="1HSG" title="HIV-1 protease with the inhibitor indinavir — a clean holo example">1HSG</button>
-          <button class="ex" data-pdb="1CA2" title="Carbonic anhydrase II with a catalytic zinc — metal coordination example">1CA2</button>
-          <button class="ex" data-pdb="4HHB" title="Haemoglobin — multi-chain, heme groups">4HHB</button>
-        </div>
         <div class="upload-row">
           <label class="upload-btn" for="uploadInput">Upload PDB…</label>
           <input id="uploadInput" type="file" accept=".pdb,.ent,chemical/x-pdb" aria-label="Upload a PDB-format structure file" />
@@ -117,7 +111,7 @@
       <section class="panel" data-panel="evolution">
         <div class="pocket-controls">
           <button id="evoBtn" class="primary">Analyze conservation</button>
-          <span class="hint" style="margin:0">Fetches the protein's Pfam family alignment and scores each residue &amp; pocket by evolutionary conservation. A few seconds.</span>
+          <span class="hint" style="margin:0">Retrieves the protein's Pfam family alignment and scores each residue &amp; pocket by evolutionary conservation. A few seconds.</span>
         </div>
         <div id="evolutionContent" class="empty">No conservation analysis yet. Click “Analyze conservation”.</div>
       </section>
