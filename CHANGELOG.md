@@ -5,6 +5,15 @@ All notable changes to SnaCleX are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+- **Per-chain loading for large assemblies** — when a structure exceeds the
+  interactive atom limit, `/api/analyze` returns its chain list
+  (`{too_large, n_atoms, limit, chains:[{chain, atom_count}]}`) and the UI shows
+  a chain picker. `/api/analyze?pdb=ID&chain=X` loads just that chain (subset
+  cached under a synthetic id, usable across all analyses). This is how big
+  mega-assemblies like `6BCX` (113,610 atoms) become analyzable one chain at a
+  time. (`pdbparse.subset_chain`)
+
 ### Fixed
 - **Structures with no legacy PDB file now load** (e.g. `6BCX`, which 404'd on
   `files.rcsb.org/download/*.pdb`). `rcsb.fetch_structure` falls back to the
@@ -102,7 +111,7 @@ All notable changes to SnaCleX are documented here. This project adheres to
 - **Privacy & Terms pages** (`web/privacy.html`, `web/terms.html`) linked from a
   new site footer: no accounts/cookies/trackers, what's collected, third-party
   data sources, retention, and the research-only disclaimer.
-- **Test suite** (`tests/`) — 116 stdlib `unittest` cases covering the
+- **Test suite** (`tests/`) — 120 stdlib `unittest` cases covering the
   pure-compute core (`pdbparse`, `interactions`, `docking`, `pockets`,
   `report`) plus the PubChem/RCSB helpers. Runs fully offline; the HTTP fetch
   layer (`http_util`) is exercised via a mock seam (retry/backoff, fast-fail on

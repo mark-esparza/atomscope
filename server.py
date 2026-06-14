@@ -199,13 +199,12 @@ def _check_structure_size(structure, label):
         )
 
 
-def _load_structure(pdb_id: str):
-    # User-uploaded structures live in their own cache, keyed by upload id.
-    with _UPLOAD_LOCK:
-        up = _UPLOAD_CACHE.get(pdb_id)
-    if up is not None:
-        return up
+def _load_full(pdb_id: str):
+    """Fetch + parse a structure with no atom-count limit (cached).
 
+    Used by analyze, which may then offer per-chain loading for big assemblies.
+    Only a byte pre-cap guards against pathologically large downloads.
+    """
     pid = rcsb.normalize_pdb_id(pdb_id)
     with _CACHE_LOCK:
         cached = _CACHE.get(pid)
@@ -214,14 +213,8 @@ def _load_structure(pdb_id: str):
 
     text = rcsb.fetch_structure(pid)
     if len(text) > MAX_STRUCTURE_BYTES:
-        raise FetchError(
-            f"{pid} structure file is too large to load interactively."
-        )
+        raise FetchError(f"{pid} structure file is too large to load.")
     structure = pdbparse.parse_structure(text)
-    _check_structure_size(structure, pid)
-    # The viewer reads PDB format, so re-serialize mmCIF-sourced structures.
-    if "_atom_site." in text:
-        text = pdbparse.to_pdb(structure)
     try:
         meta = rcsb.fetch_entry_metadata(pid)
     except FetchError:
@@ -233,6 +226,45 @@ def _load_structure(pdb_id: str):
             _CACHE.pop(next(iter(_CACHE)))
         _CACHE[pid] = entry
     return entry
+
+
+def _load_structure(pdb_id: str):
+    """Return a size-OK, viewer-ready (PDB-format text) structure for analysis.
+
+    Uploads and per-chain subsets live in the upload cache; plain PDB ids are
+    fetched, size-checked, and re-serialized to PDB if they came as mmCIF.
+    """
+    with _UPLOAD_LOCK:
+        up = _UPLOAD_CACHE.get(pdb_id)
+    if up is not None:
+        return up
+
+    raw, structure, meta = _load_full(pdb_id)
+    _check_structure_size(structure, meta.get("pdb_id") or pdb_id)
+    text = pdbparse.to_pdb(structure) if "_atom_site." in raw else raw
+    return (text, structure, meta)
+
+
+def _cache_subset(parent_pid, chain, structure, meta):
+    """Store a per-chain subset in the upload cache; return its synthetic id."""
+    sub = pdbparse.subset_chain(structure, chain)
+    _check_structure_size(sub, f"{parent_pid} chain {chain}")
+    sub_id = f"{parent_pid}-{chain}"
+    title = (meta.get("title") or parent_pid)
+    sub_meta = {
+        **meta,
+        "pdb_id": sub_id,
+        "source_pdb_id": parent_pid,
+        "chain": chain,
+        "title": f"{title} — chain {chain}",
+        "subset": True,
+    }
+    entry = (pdbparse.to_pdb(sub), sub, sub_meta)
+    with _UPLOAD_LOCK:
+        if len(_UPLOAD_CACHE) >= _UPLOAD_MAX:
+            _UPLOAD_CACHE.pop(next(iter(_UPLOAD_CACHE)))
+        _UPLOAD_CACHE[sub_id] = entry
+    return sub_id, entry
 
 
 _EVO_CACHE: dict[str, dict] = {}
@@ -821,20 +853,54 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_json(out)
 
     # ---- API endpoints ------------------------------------------------
+    def _analyze_payload(self, sid, structure, meta, text):
+        return self._send_json({
+            "id": sid,
+            "metadata": meta,
+            "chains": structure.chains,
+            "protein_atom_count": len(structure.protein_atoms),
+            "components": _components_json(structure),
+            "pdb_data": text,
+        })
+
     def _api_analyze(self, qs):
         pdb_id = (qs.get("pdb") or [""])[0]
+        chain = clean_text((qs.get("chain") or [""])[0], max_len=8)
         if not pdb_id:
             return self._send_error_json("Missing 'pdb' parameter")
-        text, structure, meta = _load_structure(pdb_id)
-        return self._send_json(
-            {
-                "metadata": meta,
-                "chains": structure.chains,
-                "protein_atom_count": len(structure.protein_atoms),
-                "components": _components_json(structure),
-                "pdb_data": text,
-            }
-        )
+
+        # Uploaded structures / per-chain subsets are already small and cached.
+        if pdb_id in _UPLOAD_CACHE:
+            text, structure, meta = _load_structure(pdb_id)
+            return self._analyze_payload(pdb_id, structure, meta, text)
+
+        raw, structure, meta = _load_full(pdb_id)
+        pid = meta.get("pdb_id") or rcsb.normalize_pdb_id(pdb_id)
+
+        if chain:
+            if chain not in structure.chains:
+                return self._send_error_json(
+                    f"Chain '{chain}' not found in {pid}.", status=404
+                )
+            sub_id, (text, sub, sub_meta) = _cache_subset(pid, chain, structure, meta)
+            return self._analyze_payload(sub_id, sub, sub_meta, text)
+
+        if len(structure.atoms) > MAX_STRUCTURE_ATOMS:
+            counts = {}
+            for a in structure.atoms:
+                counts[a.chain] = counts.get(a.chain, 0) + 1
+            chains = [{"chain": c, "atom_count": counts.get(c, 0)}
+                      for c in structure.chains]
+            return self._send_json({
+                "too_large": True,
+                "pdb_id": pid,
+                "n_atoms": len(structure.atoms),
+                "limit": MAX_STRUCTURE_ATOMS,
+                "chains": chains,
+            })
+
+        text = pdbparse.to_pdb(structure) if "_atom_site." in raw else raw
+        return self._analyze_payload(pid, structure, meta, text)
 
     def _api_interactions(self, qs):
         pdb_id = (qs.get("pdb") or [""])[0]

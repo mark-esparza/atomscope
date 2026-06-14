@@ -110,6 +110,19 @@ class TestParseMmcif(unittest.TestCase):
         n_atom = next(a for a in s.protein_atoms if a.name == "N")
         self.assertAlmostEqual(n_atom.x, 1.0)
 
+    def test_subset_chain(self):
+        # Build a 2-chain structure and confirm subsetting keeps only one chain.
+        from tests.fixtures import mmcif_text
+        rows = (
+            [{"element": "C", "name": f"A{i}", "chain": "A", "seq": i} for i in range(4)]
+            + [{"element": "C", "name": f"B{i}", "chain": "B", "seq": i} for i in range(3)]
+        )
+        s = pdbparse.parse_mmcif(mmcif_text(rows))
+        sub = pdbparse.subset_chain(s, "A")
+        self.assertEqual(sub.chains, ["A"])
+        self.assertEqual(len(sub.protein_atoms), 4)
+        self.assertTrue(all(a.chain == "A" for a in sub.atoms))
+
     def test_to_pdb_roundtrip(self):
         # mmCIF -> Structure -> PDB text -> Structure preserves atoms/coords, so
         # the 3Dmol viewer (which reads "pdb") can render an mmCIF-sourced entry.

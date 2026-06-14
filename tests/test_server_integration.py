@@ -181,6 +181,51 @@ class TestServerIntegration(unittest.TestCase):
         self.assertEqual(resp.status, 413)
         self.assertIn("too large", json.loads(body)["error"])
 
+    # ---- large assembly -> per-chain loading -------------------------
+    def _two_chain_structure(self):
+        from tests.fixtures import atom, structure
+        prot = (
+            [atom("C", float(i), 0, 0, name=f"A{i}", res_name="LEU", chain="A", res_seq=i)
+             for i in range(6)]
+            + [atom("C", float(i), 5, 0, name=f"B{i}", res_name="LEU", chain="B", res_seq=i)
+               for i in range(6)]
+        )
+        return structure(prot)
+
+    def test_analyze_too_large_offers_chains(self):
+        s = self._two_chain_structure()
+        meta = {"pdb_id": "TST1", "title": "Test assembly"}
+        with mock.patch.object(server, "_load_full", return_value=("ATOMS", s, meta)), \
+             mock.patch.object(server, "MAX_STRUCTURE_ATOMS", 8):
+            resp, body = self._get("/api/analyze?pdb=TST1")
+        data = json.loads(body)
+        self.assertEqual(resp.status, 200)
+        self.assertTrue(data["too_large"])
+        self.assertEqual(data["n_atoms"], 12)
+        self.assertEqual({c["chain"] for c in data["chains"]}, {"A", "B"})
+
+    def test_analyze_single_chain_loads(self):
+        s = self._two_chain_structure()
+        meta = {"pdb_id": "TST2", "title": "Test assembly"}
+        with mock.patch.object(server, "_load_full", return_value=("ATOMS", s, meta)), \
+             mock.patch.object(server, "MAX_STRUCTURE_ATOMS", 8):
+            resp, body = self._get("/api/analyze?pdb=TST2&chain=A")
+        data = json.loads(body)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(data["id"], "TST2-A")          # synthetic subset id
+        self.assertEqual(data["protein_atom_count"], 6)  # only chain A
+        self.assertNotIn("_atom_site.", data["pdb_data"])
+        # The subset is now loadable by its id like any structure.
+        resp2, _ = self._get("/api/analyze?pdb=TST2-A")
+        self.assertEqual(resp2.status, 200)
+
+    def test_analyze_unknown_chain_404(self):
+        s = self._two_chain_structure()
+        meta = {"pdb_id": "TST3", "title": "x"}
+        with mock.patch.object(server, "_load_full", return_value=("ATOMS", s, meta)):
+            resp, _ = self._get("/api/analyze?pdb=TST3&chain=Z")
+        self.assertEqual(resp.status, 404)
+
 
 def _pdb_line(rec, serial, name, res, chain, seq, x, y, z, el):
     return (f"{rec:<6}{serial:>5} {name:<4} {res:>3} {chain}{seq:>4}    "

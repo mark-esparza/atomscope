@@ -23,8 +23,12 @@ _LIMITS = {
 _ENDPOINTS = [
     {
         "method": "GET", "path": "/api/analyze",
-        "params": {"pdb": "4-char PDB ID or upload id (required)"},
-        "returns": "metadata, chains, components, protein_atom_count, pdb_data",
+        "params": {"pdb": "4-char PDB ID or upload id (required)",
+                   "chain": "optional chain id to load just that chain"},
+        "returns": "id, metadata, chains, components, protein_atom_count, "
+                   "pdb_data. For assemblies over the atom limit (no chain "
+                   "given): {too_large, n_atoms, limit, chains:[{chain, "
+                   "atom_count}]} so a chain can be chosen.",
     },
     {
         "method": "GET", "path": "/api/interactions",

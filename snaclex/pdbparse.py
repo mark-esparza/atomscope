@@ -157,6 +157,15 @@ def parse_pdb(text: str) -> Structure:
     return _assemble(atoms)
 
 
+def subset_chain(structure: Structure, chain: str) -> Structure:
+    """Return a new Structure containing only the atoms of one chain.
+
+    Lets large multi-chain assemblies (which exceed PDB-format / interactive
+    limits) be analyzed one chain at a time.
+    """
+    return _assemble([a for a in structure.atoms if a.chain == chain])
+
+
 def _assemble(atoms: list[Atom]) -> Structure:
     """Group a flat atom list into protein atoms, hetero components, and chains."""
     protein_atoms = [a for a in atoms if not a.is_hetero and a.res_name in STANDARD_AA]

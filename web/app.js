@@ -130,23 +130,62 @@ function smartLoad(value) {
   }
 }
 
-async function loadStructure(pdbId) {
+async function loadStructure(pdbId, chain) {
   pdbId = (pdbId || "").trim().toUpperCase();
   if (!/^[0-9A-Z]{4}$/.test(pdbId)) {
     setStatus("PDB IDs are 4 characters, e.g. 1HSG.", "error");
     return;
   }
-  setStatus(`Fetching ${pdbId} from RCSB and parsing atoms…`, "busy");
+  setStatus(
+    chain
+      ? `Loading ${pdbId} chain ${chain}…`
+      : `Fetching ${pdbId} from RCSB and parsing atoms…`,
+    "busy"
+  );
   $("#loadBtn").disabled = true;
   $("#searchResults").innerHTML = "";
   try {
-    const data = await getJSON(`/api/analyze?pdb=${pdbId}`);
-    applyStructure(pdbId, data);
+    const url = `/api/analyze?pdb=${pdbId}` +
+      (chain ? `&chain=${encodeURIComponent(chain)}` : "");
+    const data = await getJSON(url);
+    if (data.too_large) {
+      renderChainPicker(pdbId, data);
+      return;
+    }
+    applyStructure(data.id || pdbId, data);
   } catch (err) {
     setStatus(`Could not load ${pdbId}: ${err.message}`, "error");
   } finally {
     $("#loadBtn").disabled = false;
   }
+}
+
+// Big multi-chain assemblies exceed PDB-format / interactive limits; let the
+// user load one chain at a time instead of freezing on the whole thing.
+function renderChainPicker(pdbId, data) {
+  switchTab("overview");
+  setStatus(
+    `${data.pdb_id} has ${data.n_atoms.toLocaleString()} atoms — too large to ` +
+      `load whole (limit ${data.limit.toLocaleString()}). Pick a chain:`,
+    "error"
+  );
+  const btns = (data.chains || [])
+    .map(
+      (ch) =>
+        `<button class="ex chain-pick" data-chain="${escapeHtml(ch.chain)}">` +
+        `Chain ${escapeHtml(ch.chain)} ` +
+        `<span class="muted">(${ch.atom_count.toLocaleString()} atoms)</span></button>`
+    )
+    .join(" ");
+  const c = $("#overviewContent");
+  c.className = "";
+  c.innerHTML =
+    `<p><b>${escapeHtml(data.pdb_id)}</b> is a large assembly ` +
+    `(${data.n_atoms.toLocaleString()} atoms). Load a single chain to analyze ` +
+    `it interactively:</p><div class="examples">${btns || "No chains found."}</div>`;
+  c.querySelectorAll(".chain-pick").forEach((b) =>
+    b.addEventListener("click", () => loadStructure(pdbId, b.dataset.chain))
+  );
 }
 
 // Populate state + render from an analyze/upload response. Shared by RCSB loads
