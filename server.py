@@ -31,6 +31,7 @@ from snaclex import (
     interactions,
     pdbparse,
     pockets,
+    provenance,
     pubchem,
     rcsb,
     report,
@@ -456,6 +457,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._api_screen(qs)
         if path == "/api/search":
             return self._api_search(qs)
+        if path == "/api/version":
+            return self._api_version(qs)
         return self._serve_static(path)
 
     # ---- API endpoints ------------------------------------------------
@@ -693,7 +696,11 @@ class Handler(BaseHTTPRequestHandler):
         if not pdb_id:
             return self._send_error_json("Missing 'pdb' parameter")
         found = _get_pockets(pdb_id)
-        return self._send_json({"pockets": found, "count": len(found)})
+        return self._send_json({
+            "pockets": found,
+            "count": len(found),
+            "methods": provenance.pocket_methods(),
+        })
 
     def _api_evolution(self, qs):
         pdb_id = (qs.get("pdb") or [""])[0]
@@ -704,13 +711,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(
                 evo or {"available": False, "reason": "Conservation analysis unavailable."}
             )
-        return self._send_json({"available": True, **evo})
+        return self._send_json({
+            "available": True,
+            **evo,
+            "methods": provenance.evolution_methods(),
+        })
 
     def _api_search(self, qs):
         query = clean_text((qs.get("q") or [""])[0])
         if not query:
             return self._send_error_json("Missing 'q' parameter")
         return self._send_json({"results": rcsb.search_by_name(query, limit=10)})
+
+    def _api_version(self, qs):
+        return self._send_json({
+            "name": "SnaCleX",
+            "version": SNACLEX_VERSION,
+            "research_only": True,
+        })
 
 
 def main():

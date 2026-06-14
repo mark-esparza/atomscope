@@ -1,15 +1,5 @@
 "use strict";
 
-// HTML-escape any value interpolated into innerHTML, so text/attributes coming
-// from upstream services (PubChem/RCSB/ChEMBL) can never break out of their
-// markup context. Defense-in-depth alongside the server's Content-Security-Policy.
-function esc(value) {
-  return String(value == null ? "" : value).replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
-  );
-}
-
 // ---------- interaction line shades (grayscale, no hue) ----------
 const COLORS = {
   hydrogen_bond: 0x222222,
@@ -876,6 +866,38 @@ function methodsHTML(m) {
     </details>`;
 }
 
+// Method-transparency card for the non-docking analyses (pockets, evolution):
+// method family + version, key parameters, scoring, a plain-language "what this
+// score means / does not mean", and limitations. Backed by /api provenance.
+function provenanceCardHTML(m) {
+  if (!m) return "";
+  const row = (k, v) =>
+    v === undefined || v === null || v === ""
+      ? ""
+      : `<tr><td class="mk">${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`;
+  const params = m.parameters
+    ? Object.entries(m.parameters)
+        .map(([k, v]) => row(k.replace(/_/g, " "), v))
+        .join("")
+    : "";
+  const limits = (m.limitations || [])
+    .map((x) => `<li>${escapeHtml(x)}</li>`)
+    .join("");
+  return `
+    <details class="methods">
+      <summary>Methods &amp; interpretation</summary>
+      <table class="methods-table">
+        ${row("Tool", m.tool)}
+        ${row("Method", m.method)}
+        ${params}
+        ${row("Scoring", m.scoring)}
+        ${row("Interpretation", m.interpretation)}
+      </table>
+      ${limits ? `<div class="methods-limits"><b>Limitations</b><ul>${limits}</ul></div>` : ""}
+      <div class="disclaimer" style="margin-top:10px">${escapeHtml(m.disclaimer || "")}</div>
+    </details>`;
+}
+
 function renderDocking(data) {
   const c = $("#dockingContent");
   c.className = "";
@@ -1251,6 +1273,7 @@ async function detectPockets() {
   try {
     const data = await getJSON(`/api/pockets?pdb=${state.pdbId}`);
     state.pockets = data.pockets;
+    state.pocketMethods = data.methods || null;
     renderPockets(data.pockets);
     setStatus(
       `Found ${data.count} candidate pocket(s). Click “Show in 3D” to view, or “Dock here” to dock a chemical into a cavity.`
@@ -1308,7 +1331,9 @@ function renderPockets(pk) {
     &nbsp;·&nbsp; <span class="tier-badge pocket">pocket</span> ${tiers.pocket}
     <span class="hint" style="display:block;margin-top:6px">Tiers (heuristic): <b>pocket</b> = geometric cavity · <b>ligandable</b> = large &amp; enclosed enough for a small molecule · <b>druggable</b> = also chemically favourable (hydrophobic, enclosed, not too polar).</span>
   </div>`;
-  c.innerHTML = legend + `<div class="pocket-list">${pk.map(pocketCard).join("")}</div>`;
+  c.innerHTML = legend +
+    `<div class="pocket-list">${pk.map(pocketCard).join("")}</div>` +
+    provenanceCardHTML(state.pocketMethods);
   pk.forEach((p) => {
     c.querySelector(`#pk-show-${p.index}`).addEventListener("click", () => showPocket(p.index));
     c.querySelector(`#pk-dock-${p.index}`).addEventListener("click", () => dockIntoPocket(p.index));
@@ -1417,7 +1442,8 @@ function renderEvolution(d) {
       <tbody>${pk || `<tr><td colspan="6">No pockets.</td></tr>`}</tbody>
     </table>
     <div class="hint">★ = specificity candidate: pocket lined by residues this protein has diverged from the conserved family consensus (possible lineage-specific binding specialization).</div>
-    <div class="disclaimer">Conservation is a family-MSA signal (Shannon entropy across ${d.n_sequences} Pfam homologs, 0 = variable, 1 = invariant) — not phylogenetic ancestral reconstruction. Conserved pocket-lining residues suggest functional importance.</div>`;
+    <div class="disclaimer">Conservation is a family-MSA signal (Shannon entropy across ${d.n_sequences} Pfam homologs, 0 = variable, 1 = invariant) — not phylogenetic ancestral reconstruction. Conserved pocket-lining residues suggest functional importance.</div>
+    ${provenanceCardHTML(d.methods)}`;
   $("#evoColorBtn").addEventListener("click", () => {
     state.colorMode = "conservation";
     const cm = $("#colorMode");
@@ -1561,7 +1587,7 @@ function renderChemical(d) {
 
   c.innerHTML = `
     <div class="chem-head">
-      ${d.image_url ? `<img class="chem-img" src="${esc(d.image_url)}" alt="2D structure" />` : ""}
+      ${d.image_url ? `<img class="chem-img" src="${escapeHtml(d.image_url)}" alt="2D structure" />` : ""}
       <div class="chem-info">
         <h3>${d.iupac_name || d.query}</h3>
         <div class="pdbid" style="font-family:monospace">CID ${d.cid} · ${d.molecular_formula || ""}</div>
@@ -1745,12 +1771,94 @@ function exportReport() {
   L.push(rule("="));
   L.push("Research-only. Heuristic predictions from a single static structure + family alignment. Not affinities or clinical guidance; validate with orthogonal evidence.");
 
-  const blob = new Blob([L.join("\n")], { type: "text/plain" });
+  downloadBlob(L.join("\n"), `snaclex_${m.pdb_id || state.pdbId}_report.txt`, "text/plain");
+}
+
+// ---------- structured exports (Phase 2: reproducibility) ----------
+function downloadBlob(text, filename, mime) {
+  const blob = new Blob([text], { type: mime });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `snaclex_${m.pdb_id || state.pdbId}_report.txt`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// Full machine-readable session: metadata + every analysis run + its methods/
+// provenance, so a result can be reproduced and audited (not just read as prose).
+function exportSessionJSON() {
+  if (!state.pdbId) {
+    setStatus("Load a structure first.", "error");
+    return;
+  }
+  const m = state.meta || {};
+  const session = {
+    schema: "snaclex-session/1",
+    tool: "SnaCleX",
+    exported_utc: new Date().toISOString(),
+    research_only: true,
+    protein: {
+      pdb_id: m.pdb_id || state.pdbId,
+      metadata: state.meta || null,
+      chains: state.chains || null,
+      protein_atom_count: state.proteinAtomCount,
+    },
+    interactions: state.profile
+      ? { profile: state.profile, report: state.report }
+      : null,
+    pockets:
+      state.pockets && state.pockets.length
+        ? { results: state.pockets, methods: state.pocketMethods || null }
+        : null,
+    evolution: state.evolution || null,
+    docking: state.dockData || null,
+    screening: state.screen || null,
+    chemical: state.chemical || null,
+  };
+  downloadBlob(
+    JSON.stringify(session, null, 2),
+    `snaclex_${m.pdb_id || state.pdbId}_session.json`,
+    "application/json"
+  );
+  setStatus("Exported full session as JSON.");
+}
+
+// CSV of the batch-screen ranking — drops straight into a spreadsheet / pandas.
+function exportScreenCSV() {
+  const sc = state.screen;
+  if (!sc || !(sc.results || []).length) {
+    setStatus("Run a batch screen first (Docking tab).", "error");
+    return;
+  }
+  const cols = [
+    "rank", "query", "cid", "name", "formula", "score", "ligand_efficiency",
+    "n_heavy_atoms", "interaction_total", "contact_residue_count",
+    "top_residues", "error",
+  ];
+  const cell = (v) => {
+    if (v === undefined || v === null) return "";
+    const s = Array.isArray(v) ? v.join(" ") : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [cols.join(",")];
+  sc.results.forEach((r) => lines.push(cols.map((c) => cell(r[c])).join(",")));
+  downloadBlob(
+    lines.join("\n"),
+    `snaclex_${sc.pdb_id || state.pdbId}_screen.csv`,
+    "text/csv"
+  );
+  setStatus("Exported screen ranking as CSV.");
+}
+
+// The docked pose as a real PDB coordinate file (for PyMOL/Chimera/etc.).
+function exportPosePDB() {
+  if (!state.dockPose || !state.dockPose.pdb) {
+    setStatus("Run a docking first (Docking tab).", "error");
+    return;
+  }
+  const id = (state.meta && state.meta.pdb_id) || state.pdbId;
+  downloadBlob(state.dockPose.pdb, `snaclex_${id}_pose.pdb`, "chemical/x-pdb");
+  setStatus("Downloaded docked pose (.pdb).");
 }
 
 // ================= wiring =================
@@ -1819,6 +1927,9 @@ function init() {
     }
   });
   $("#exportBtn").addEventListener("click", exportReport);
+  $("#exportJsonBtn").addEventListener("click", exportSessionJSON);
+  $("#exportCsvBtn").addEventListener("click", exportScreenCSV);
+  $("#exportPoseBtn").addEventListener("click", exportPosePDB);
   $("#compileBtn").addEventListener("click", compileReport);
   $("#shareView").addEventListener("click", shareView);
 

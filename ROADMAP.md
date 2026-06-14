@@ -88,26 +88,26 @@ The audit's highest-confidence risk class. Implemented in `server.py`
 
 ---
 
-## Phase 2 — Scientific provenance & reproducibility (audit priority: HIGH)
+## Phase 2 — Scientific provenance & reproducibility (audit priority: HIGH) — ✅ mostly done
 
 The audit's single "highest-leverage product idea" is a *benchmark-first* mode.
 **Good news: this is partly built already** — `server.py:_methods_block` emits
 tool version, receptor prep, box geometry, scoring model, search seeds + random
 seed, and interaction cutoffs on every dock/screen run. Extend rather than start.
 
-- [ ] **Structured export** — today the report is `.txt` only
-  (`snaclex/report.py`). Add **JSON** export of the full session (metadata +
-  methods block + profiles + docking/screen results) and **CSV** for screen
-  rankings. This is the audit's "no structured export (JSON/CSV/SDF)" gap. Add
-  **SDF/PDB** export for docked poses (`docking.pose_to_pdb` already produces
-  PDB text).
-- [ ] **Method cards in the UI** — per analysis tab (Pockets/Evolution/Docking/
-  Screening), surface a compact panel: method family + version, known
-  limitations, and a "What this score means / does *not* mean" note. The
-  scoring/disclaimer strings already exist in `_methods_block`; render them.
+- [x] **Structured export** — added alongside the existing `.txt`: **JSON**
+  (full machine-readable session: metadata + every analysis + its
+  methods/provenance), **CSV** (batch-screen ranking), and **PDB** (docked pose,
+  from `docking.pose_to_pdb`). Buttons live in the Report tab.
+  _Remaining:_ true **SDF** with bond perception (atoms-only SDF isn't useful);
+  deferred to the Phase 4 docking-stack work where ligand bonds are available.
+- [x] **Method cards in the UI** — `/api/pockets` and `/api/evolution` now return
+  a provenance block (`snaclex/provenance.py`: method family + version + real
+  parameters + scoring + interpretation + limitations), rendered as a card by
+  `provenanceCardHTML`. Docking/screening already had `_methods_block`.
 - [ ] **Benchmark metadata** — add a `last_benchmark_date` + dataset list to the
-  methods block once Phase 4 benchmarks run, so each result links to its
-  validation provenance.
+  methods/provenance blocks once Phase 4 benchmarks run, so each result links to
+  its validation provenance.
 
 ---
 

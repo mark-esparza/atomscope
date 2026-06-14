@@ -5,6 +5,21 @@ All notable changes to SnaCleX are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Provenance & reproducibility (Phase 2)
+- **Method-transparency blocks** for pocket detection and conservation
+  (`snaclex/provenance.py`) — method family, version, real parameters (pulled
+  from the module constants), scoring formula, a plain-language "what this score
+  means / does not mean", and limitations. Now returned by `/api/pockets` and
+  `/api/evolution`, matching the methods block docking/screening already emit.
+- **Method/interpretation cards** rendered in the Pockets and Evolution tabs
+  (`provenanceCardHTML` in `app.js`).
+- **Structured exports** beyond the existing `.txt`:
+  - **JSON** — the full machine-readable session (metadata + every analysis +
+    its methods/provenance) for reproducibility and audit.
+  - **CSV** — the batch-screen ranking, spreadsheet/pandas-ready.
+  - **PDB** — the docked pose as a real coordinate file for PyMOL/Chimera/etc.
+- **`/api/version`** endpoint (the item deferred from Phase 0).
+
 ### Security (Phase 1)
 - **Security headers** on every response — a tuned `Content-Security-Policy`
   (locks scripts to self + the 3Dmol.js CDN, images to self + PubChem, blocks
@@ -24,7 +39,7 @@ All notable changes to SnaCleX are documented here. This project adheres to
 - **Privacy & Terms pages** (`web/privacy.html`, `web/terms.html`) linked from a
   new site footer: no accounts/cookies/trackers, what's collected, third-party
   data sources, retention, and the research-only disclaimer.
-- **Test suite** (`tests/`) — 66 stdlib `unittest` cases covering the
+- **Test suite** (`tests/`) — 76 stdlib `unittest` cases covering the
   pure-compute core (`pdbparse`, `interactions`, `docking`, `pockets`,
   `report`) plus the PubChem/RCSB helpers. Runs fully offline; the HTTP fetch
   layer (`http_util`) is exercised via a mock seam (retry/backoff, fast-fail on
@@ -36,8 +51,8 @@ All notable changes to SnaCleX are documented here. This project adheres to
 - **ROADMAP.md** — prioritized plan derived from the external audit report,
   mapped to the actual codebase and the project's zero-dependency philosophy.
 
-_This covers Phase 0 (engineering hygiene) and Phase 1 (security & privacy
-baseline) of the roadmap._
+_This covers Phase 0 (engineering hygiene), Phase 1 (security & privacy
+baseline), and Phase 2 (provenance & structured export) of the roadmap._
 
 ## [0.1.0]
 
