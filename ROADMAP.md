@@ -194,11 +194,14 @@ screen reader._
   contract at `GET /api/docs` (params, bodies, limits, error shapes), rendered
   at `/api.html` and linked from the footer. Unit-tested for completeness.
 - [x] **Custom structure upload** — `POST /api/upload` takes a validated,
-  size-capped PDB file into a bounded in-memory cache (never written to disk)
-  and returns an upload id usable anywhere a PDB id is (`_norm_id` threads it
-  through analyze/interactions/pockets/docking/screening). Integration-tested.
-  _Remaining:_ mmCIF parsing (currently detected + rejected) and
-  AlphaFold/UniProt import.
+  size-capped PDB **or mmCIF** file into a bounded in-memory cache (never
+  written to disk) and returns an upload id usable anywhere a PDB id is
+  (`_norm_id` threads it through analyze/interactions/pockets/docking/screening).
+  Integration-tested.
+- [x] **mmCIF support** — `pdbparse.parse_mmcif`/`parse_structure` parse the
+  `_atom_site` loop, and `rcsb.fetch_structure` falls back to `.cif` when an
+  entry has no legacy PDB file (fixes loading e.g. 6BCX).
+  _Remaining:_ AlphaFold/UniProt import.
 
 ---
 

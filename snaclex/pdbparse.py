@@ -7,6 +7,7 @@ components so they can be analyzed and selected in the UI.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 WATER_NAMES = {"HOH", "WAT", "DOD", "H2O", "TIP", "SOL"}
@@ -153,6 +154,11 @@ def parse_pdb(text: str) -> Structure:
             )
         )
 
+    return _assemble(atoms)
+
+
+def _assemble(atoms: list[Atom]) -> Structure:
+    """Group a flat atom list into protein atoms, hetero components, and chains."""
     protein_atoms = [a for a in atoms if not a.is_hetero and a.res_name in STANDARD_AA]
 
     comp_map: dict[tuple, Component] = {}
@@ -178,3 +184,130 @@ def parse_pdb(text: str) -> Structure:
         components=components,
         chains=chains,
     )
+
+
+def parse_structure(text: str) -> Structure:
+    """Parse a structure file, auto-detecting PDB vs mmCIF/PDBx format.
+
+    RCSB serves only mmCIF for entries with no legacy PDB-format file (large or
+    newer structures), so the fetch layer falls back to ``.cif`` and we detect
+    it here.
+    """
+    if "_atom_site." in text:
+        return parse_mmcif(text)
+    return parse_pdb(text)
+
+
+_CIF_TOKEN = re.compile(r"'[^']*'|\"[^\"]*\"|\S+")
+
+
+def _cif_tokens(line: str) -> list[str]:
+    out = []
+    for tok in _CIF_TOKEN.findall(line):
+        if len(tok) >= 2 and tok[0] in "'\"" and tok[-1] == tok[0]:
+            tok = tok[1:-1]
+        out.append(tok)
+    return out
+
+
+def _cif_value(row: dict, *names, default: str = "") -> str:
+    """First present, non-placeholder value among `names` ('.'/'?' mean unset)."""
+    for n in names:
+        v = row.get(n)
+        if v not in (None, "", ".", "?"):
+            return v
+    return default
+
+
+def parse_mmcif(text: str) -> Structure:
+    """Parse the ``_atom_site`` loop of an mmCIF/PDBx file into a Structure.
+
+    Handles the first model only and keeps a single alternate location per atom,
+    mirroring ``parse_pdb``. Prefers auth_* identifiers (what users and the PDB
+    format use) over label_* ones.
+    """
+    lines = text.splitlines()
+    atoms: list[Atom] = []
+    seen_alt: dict[tuple, str] = {}
+    first_model: str | None = None
+
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if line.strip() != "loop_":
+            i += 1
+            continue
+        # Collect the column tags that follow `loop_`.
+        i += 1
+        tags: list[str] = []
+        while i < n and lines[i].lstrip().startswith("_"):
+            tags.append(lines[i].strip())
+            i += 1
+        if not any(t.startswith("_atom_site.") for t in tags):
+            continue  # some other loop; skip its tag block, scan onward
+        col = {t: idx for idx, t in enumerate(tags)}
+
+        def g(row, name):
+            idx = col.get("_atom_site." + name)
+            return row[idx] if idx is not None and idx < len(row) else None
+
+        while i < n:
+            raw = lines[i]
+            s = raw.strip()
+            if s == "" or s.startswith("#") or s.startswith("loop_") or s.startswith("_") or s.startswith("data_"):
+                break
+            i += 1
+            row = _cif_tokens(raw)
+            if len(row) < len(tags):
+                continue
+
+            model = g(row, "pdbx_PDB_model_num")
+            if first_model is None:
+                first_model = model
+            elif model != first_model:
+                continue
+
+            d = {
+                "group": g(row, "group_PDB") or "ATOM",
+                "element": (g(row, "type_symbol") or "").strip().upper(),
+                "name": _cif_value({"a": g(row, "auth_atom_id"), "l": g(row, "label_atom_id")}, "a", "l"),
+                "alt": g(row, "label_alt_id") or "",
+                "res_name": _cif_value({"a": g(row, "auth_comp_id"), "l": g(row, "label_comp_id")}, "a", "l"),
+                "chain": _cif_value({"a": g(row, "auth_asym_id"), "l": g(row, "label_asym_id")}, "a", "l", default="A"),
+                "seq": _cif_value({"a": g(row, "auth_seq_id"), "l": g(row, "label_seq_id")}, "a", "l", default="0"),
+                "icode": g(row, "pdbx_PDB_ins_code") or "",
+                "x": g(row, "Cartn_x"), "y": g(row, "Cartn_y"), "z": g(row, "Cartn_z"),
+                "occ": g(row, "occupancy"), "b": g(row, "B_iso_or_equiv"),
+            }
+            if d["alt"] in (".", "?"):
+                d["alt"] = ""
+            if d["icode"] in (".", "?"):
+                d["icode"] = ""
+            name = d["name"].strip("'\"")
+            res_seq = int(_f(d["seq"], 0))
+            alt_key = (d["chain"], res_seq, d["icode"], name)
+            if d["alt"]:
+                if alt_key in seen_alt and seen_alt[alt_key] != d["alt"]:
+                    continue
+                seen_alt[alt_key] = d["alt"]
+
+            element = d["element"] or "".join(c for c in name if c.isalpha())[:2].upper()
+            atoms.append(
+                Atom(
+                    serial=int(_f(g(row, "id"), 0)),
+                    name=name,
+                    res_name=d["res_name"],
+                    chain=d["chain"],
+                    res_seq=res_seq,
+                    icode=d["icode"],
+                    x=_f(d["x"]), y=_f(d["y"]), z=_f(d["z"]),
+                    element=element,
+                    is_hetero=(d["group"] == "HETATM"),
+                    occupancy=_f(d["occ"], 1.0),
+                    bfactor=_f(d["b"], 0.0),
+                )
+            )
+        break  # the atom_site loop is parsed; done
+
+    return _assemble(atoms)

@@ -160,10 +160,13 @@ class TestServerIntegration(unittest.TestCase):
         self.assertEqual(resp.status, 400)
         self.assertIn("error", json.loads(body))
 
-    def test_upload_rejects_mmcif(self):
-        resp, body = self._post_raw("/api/upload", "data_1ABC\n_atom_site.group_PDB\n")
-        self.assertEqual(resp.status, 400)
-        self.assertIn("mmCIF", json.loads(body)["error"])
+    def test_upload_accepts_mmcif(self):
+        from tests.fixtures import mmcif_text
+        rows = [{"element": "C", "name": f"C{i}", "seq": i, "x": float(i)}
+                for i in range(12)]
+        resp, body = self._post_raw("/api/upload", mmcif_text(rows))
+        self.assertEqual(resp.status, 200)
+        self.assertTrue(json.loads(body)["upload_id"].startswith("UL"))
 
 
 def _pdb_line(rec, serial, name, res, chain, seq, x, y, z, el):

@@ -140,11 +140,16 @@ snaclex/
   rcsb.py              PDB structure + metadata + search
   pubchem.py           compound lookup + Lipinski
   chembl.py            optional drug/bioactivity cross-reference
-  pdbparse.py          dependency-free PDB parser
+  pdbparse.py          dependency-free PDB + mmCIF parser
   interactions.py      atomic interaction profiler
   pockets.py           LIGSITE geometric cavity finder
   docking.py           grid-map Monte-Carlo rigid-body docker
   report.py            summary + hypothesis generator
+  jobs.py              async job queue (ThreadPoolExecutor)
+  cache.py             TTL disk cache for upstream responses
+  provenance.py        method/benchmark transparency blocks
+  benchmark.py         redocking benchmark harness (CLI)
+  apidocs.py           machine-readable API contract
 web/
   index.html style.css app.js
 legacy/                previous StructInteract CLI (archived)
@@ -164,7 +169,7 @@ The full, live contract is served at `GET /api/docs` (rendered at `/api.html`).
 | `GET /api/search?q=TEXT` | PDB full-text search results |
 | `GET /api/version` · `GET /api/docs` | version · machine-readable API contract |
 | `POST /api/jobs` → `GET /api/jobs/{id}` | submit a docking/screening job (`kind` = `dock`/`screen`) and poll its status/result |
-| `POST /api/upload` | analyze a user-supplied PDB-format file (returns an upload id usable as `ID` above) |
+| `POST /api/upload` | analyze a user-supplied PDB or mmCIF file (returns an upload id usable as `ID` above) |
 
 `ID` is a 4-char PDB id **or** an upload id from `POST /api/upload`.
 

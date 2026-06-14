@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .http_util import FetchError, fetch_json, fetch_text
+from .http_util import FetchError, RateLimitError, fetch_json, fetch_text
 
 _PDB_ID_RE = re.compile(r"^[0-9A-Za-z]{4}$")
 
@@ -17,9 +17,19 @@ def normalize_pdb_id(pdb_id: str) -> str:
 
 
 def fetch_structure(pdb_id: str) -> str:
-    """Return the raw PDB-format text for an entry."""
+    """Return the raw structure text for an entry (PDB format, or mmCIF fallback).
+
+    Many large/newer entries have no legacy PDB-format file and 404 on the
+    ``.pdb`` download; for those RCSB serves only mmCIF, so we fall back to it.
+    ``pdbparse.parse_structure`` auto-detects which format it got.
+    """
     pid = normalize_pdb_id(pdb_id)
-    return fetch_text(f"https://files.rcsb.org/download/{pid}.pdb")
+    try:
+        return fetch_text(f"https://files.rcsb.org/download/{pid}.pdb")
+    except RateLimitError:
+        raise
+    except FetchError:
+        return fetch_text(f"https://files.rcsb.org/download/{pid}.cif")
 
 
 def fetch_entry_metadata(pdb_id: str) -> dict:

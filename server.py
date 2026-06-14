@@ -193,7 +193,7 @@ def _load_structure(pdb_id: str):
         return cached
 
     text = rcsb.fetch_structure(pid)
-    structure = pdbparse.parse_pdb(text)
+    structure = pdbparse.parse_structure(text)
     try:
         meta = rcsb.fetch_entry_metadata(pid)
     except FetchError:
@@ -752,16 +752,10 @@ class Handler(BaseHTTPRequestHandler):
             )
         raw = self.rfile.read(length).decode("utf-8", errors="replace")
 
-        # mmCIF isn't supported by the PDB-format parser yet — fail clearly.
-        if "_atom_site." in raw and "ATOM " not in raw[:2000]:
-            return self._send_error_json(
-                "mmCIF is not supported yet — please upload a PDB-format file."
-            )
-
-        structure = pdbparse.parse_pdb(raw)
+        structure = pdbparse.parse_structure(raw)  # PDB or mmCIF, auto-detected
         if len(structure.protein_atoms) < 10:
             return self._send_error_json(
-                "No protein atoms found — is this a valid PDB file?"
+                "No protein atoms found — is this a valid PDB/mmCIF file?"
             )
 
         upload_id = "UL" + uuid.uuid4().hex[:10]

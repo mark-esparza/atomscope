@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from snaclex import rcsb
-from snaclex.http_util import FetchError
+from snaclex.http_util import FetchError, RateLimitError
 
 
 class TestNormalizePdbId(unittest.TestCase):
@@ -18,6 +18,29 @@ class TestNormalizePdbId(unittest.TestCase):
     def test_non_alnum_raises(self):
         with self.assertRaises(FetchError):
             rcsb.normalize_pdb_id("1a!c")
+
+
+class TestFetchStructure(unittest.TestCase):
+    def test_falls_back_to_mmcif_on_pdb_404(self):
+        def fake(url, **kw):
+            if url.endswith(".pdb"):
+                raise FetchError("HTTP 404 for ...")
+            return "data_6BCX\n_atom_site.group_PDB\n"
+        with mock.patch.object(rcsb, "fetch_text", side_effect=fake):
+            text = rcsb.fetch_structure("6BCX")
+        self.assertIn("_atom_site.", text)
+
+    def test_uses_pdb_when_available(self):
+        with mock.patch.object(rcsb, "fetch_text", return_value="ATOM ...") as m:
+            self.assertEqual(rcsb.fetch_structure("1HSG"), "ATOM ...")
+            self.assertEqual(m.call_count, 1)  # no mmCIF fallback needed
+
+    def test_rate_limit_does_not_trigger_fallback(self):
+        with mock.patch.object(rcsb, "fetch_text",
+                               side_effect=RateLimitError("throttled")) as m:
+            with self.assertRaises(RateLimitError):
+                rcsb.fetch_structure("1HSG")
+            self.assertEqual(m.call_count, 1)  # surfaced, not retried as .cif
 
 
 class TestSearchByName(unittest.TestCase):

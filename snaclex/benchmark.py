@@ -87,12 +87,12 @@ def summarize(cases, success_A=2.0):
 # ---------------- CLI ----------------
 
 def _load_source(source):
-    if source.lower().endswith((".pdb", ".ent")):
+    if source.lower().endswith((".pdb", ".ent", ".cif", ".mmcif")):
         with open(source, encoding="utf-8") as fh:
             text = fh.read()
-        return os.path.basename(source), pdbparse.parse_pdb(text)
+        return os.path.basename(source), pdbparse.parse_structure(text)
     # Otherwise treat it as a 4-character PDB ID and fetch it.
-    return rcsb.normalize_pdb_id(source), pdbparse.parse_pdb(rcsb.fetch_structure(source))
+    return rcsb.normalize_pdb_id(source), pdbparse.parse_structure(rcsb.fetch_structure(source))
 
 
 def run(sources, *, seeds=220, min_heavy=6):

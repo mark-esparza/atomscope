@@ -70,10 +70,10 @@ _ENDPOINTS = [
     },
     {
         "method": "POST", "path": "/api/upload",
-        "body": "raw PDB-format text (Content-Type text/plain)",
+        "body": "raw PDB or mmCIF text (Content-Type text/plain)",
         "returns": "upload_id + same shape as /api/analyze",
-        "notes": "PDB format only; mmCIF not yet supported. Conservation needs a "
-                 "real PDB id, so it is unavailable for uploads.",
+        "notes": "PDB and mmCIF formats accepted. Conservation needs a real PDB "
+                 "id, so it is unavailable for uploads.",
     },
     {
         "method": "GET", "path": "/api/docs",

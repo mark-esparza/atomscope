@@ -5,6 +5,12 @@ All notable changes to SnaCleX are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+- **Structures with no legacy PDB file now load** (e.g. `6BCX`, which 404'd on
+  `files.rcsb.org/download/*.pdb`). `rcsb.fetch_structure` falls back to the
+  mmCIF (`.cif`) file, and a new `pdbparse.parse_mmcif` / `parse_structure`
+  auto-detects and parses the `_atom_site` loop. mmCIF uploads are accepted too.
+
 ### API contract & custom structures (Phase 6)
 - **Documented API** — `snaclex/apidocs.py` serves a machine-readable contract at
   `GET /api/docs` (params, request bodies, limits, error shapes), rendered as a
@@ -13,9 +19,9 @@ All notable changes to SnaCleX are documented here. This project adheres to
   PDB-format file (size-capped, validated, kept only in a bounded in-memory
   cache — never written to disk). It returns an upload id usable anywhere a PDB
   id is, so uploaded structures flow through analyze / interactions / pockets /
-  docking / screening. mmCIF is detected and rejected with a clear message
-  (not yet supported); conservation needs a real PDB id so it's unavailable for
-  uploads. Frontend gets an "Upload PDB…" control.
+  docking / screening. Both PDB and mmCIF are accepted; conservation needs a
+  real PDB id so it's unavailable for uploads. Frontend gets an "Upload PDB…"
+  control.
 
 ### Accessibility & onboarding (Phase 5)
 - **Example structures** — one-click 1HSG / 1CA2 / 4HHB buttons in the load card.
@@ -88,7 +94,7 @@ All notable changes to SnaCleX are documented here. This project adheres to
 - **Privacy & Terms pages** (`web/privacy.html`, `web/terms.html`) linked from a
   new site footer: no accounts/cookies/trackers, what's collected, third-party
   data sources, retention, and the research-only disclaimer.
-- **Test suite** (`tests/`) — 108 stdlib `unittest` cases covering the
+- **Test suite** (`tests/`) — 111 stdlib `unittest` cases covering the
   pure-compute core (`pdbparse`, `interactions`, `docking`, `pockets`,
   `report`) plus the PubChem/RCSB helpers. Runs fully offline; the HTTP fetch
   layer (`http_util`) is exercised via a mock seam (retry/backoff, fast-fail on

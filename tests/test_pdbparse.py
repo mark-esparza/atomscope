@@ -71,5 +71,45 @@ class TestParsePdb(unittest.TestCase):
         self.assertEqual(lig.label, "LIG B900")
 
 
+class TestParseMmcif(unittest.TestCase):
+    def setUp(self):
+        from tests.fixtures import mmcif_text
+        rows = [
+            {"element": "N", "name": "N", "comp": "MET", "seq": 1, "x": 1.0},
+            {"element": "C", "name": "CA", "comp": "MET", "seq": 1, "x": 2.0},
+            # An alternate location for the same atom — only the first is kept.
+            {"element": "C", "name": "CB", "comp": "MET", "seq": 1, "x": 3.0, "alt": "A"},
+            {"element": "C", "name": "CB", "comp": "MET", "seq": 1, "x": 3.5, "alt": "B"},
+            {"element": "O", "name": "O", "comp": "MET", "seq": 1, "x": 4.0},
+            # A hetero ligand component.
+            {"group": "HETATM", "element": "C", "name": "C1", "comp": "LIG",
+             "chain": "B", "seq": 900, "x": 20.0},
+            {"group": "HETATM", "element": "O", "name": "O1", "comp": "LIG",
+             "chain": "B", "seq": 900, "x": 21.0},
+            # A second model — must be ignored.
+            {"element": "N", "name": "N", "comp": "GLY", "chain": "A", "seq": 2,
+             "x": 99.0, "model": 2},
+        ]
+        self.text = mmcif_text(rows)
+
+    def test_auto_detected_as_mmcif(self):
+        s = pdbparse.parse_structure(self.text)
+        # 4 protein atoms (one CB altloc dropped), GLY from model 2 excluded.
+        self.assertEqual(len(s.protein_atoms), 4)
+
+    def test_components_and_chains(self):
+        s = pdbparse.parse_mmcif(self.text)
+        names = {c.res_name for c in s.components}
+        self.assertIn("LIG", names)
+        self.assertEqual(s.chains, ["A"])
+        lig = next(c for c in s.components if c.res_name == "LIG")
+        self.assertEqual(lig.kind, "ligand")
+
+    def test_coordinates_parsed(self):
+        s = pdbparse.parse_mmcif(self.text)
+        n_atom = next(a for a in s.protein_atoms if a.name == "N")
+        self.assertAlmostEqual(n_atom.x, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
