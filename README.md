@@ -178,3 +178,20 @@ the sources and runs the suite on Python 3.11–3.13.
 
 See [ROADMAP.md](ROADMAP.md) for planned work and [CHANGELOG.md](CHANGELOG.md)
 for recent changes.
+
+### Benchmarking the docker
+
+A dependency-free redocking benchmark self-docks each crystallographic ligand
+back into its own receptor and reports pose-recovery metrics (top-1 RMSD ≤ 2 Å,
+median/mean RMSD):
+
+```
+python -m snaclex.benchmark path/to/*.pdb --out benchmark_results.json
+# or fetch from RCSB by ID:
+python -m snaclex.benchmark 1HSG 1CA2 --out benchmark_results.json
+```
+
+Point it at PoseBusters / CrossDocked / PDBbind structures to benchmark at
+scale. If `benchmark_results.json` is committed at the repo root, the summary is
+surfaced in every docking result's methods block. RMSD is a nearest-atom proxy
+(see `docking.rmsd_to_reference`), so read sub-2 Å as "pose recovered".

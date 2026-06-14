@@ -310,6 +310,9 @@ def _methods_block(meta, site_label, center, search, ligand=None):
             "clinical guidance. Validate with orthogonal evidence."
         ),
     }
+    benchmark = provenance.docking_benchmark()
+    if benchmark is not None:
+        block["benchmark"] = benchmark
     if ligand is not None:
         block["ligand"] = {
             "source": "PubChem",

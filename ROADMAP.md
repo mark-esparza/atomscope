@@ -105,9 +105,10 @@ seed, and interaction cutoffs on every dock/screen run. Extend rather than start
   a provenance block (`snaclex/provenance.py`: method family + version + real
   parameters + scoring + interpretation + limitations), rendered as a card by
   `provenanceCardHTML`. Docking/screening already had `_methods_block`.
-- [ ] **Benchmark metadata** — add a `last_benchmark_date` + dataset list to the
-  methods/provenance blocks once Phase 4 benchmarks run, so each result links to
-  its validation provenance.
+- [x] **Benchmark metadata** — `provenance.docking_benchmark` adds
+  `last_benchmark_utc` + datasets + pose-recovery numbers to the docking methods
+  block when a `benchmark_results.json` is committed (see Phase 4). The hook is
+  wired; it stays empty until a benchmark is run against real structures.
 
 ---
 
@@ -137,27 +138,30 @@ without touching the handlers. Default deploy ignores this path.
 
 ---
 
-## Phase 4 — Docking rigor & benchmark suite (audit priority: MEDIUM, very high impact)
+## Phase 4 — Docking rigor & benchmark suite (audit priority: MEDIUM, very high impact) — 🟡 harness done
 
 The audit's clearest *scientific* gap: the current docker is an honest,
 self-disclosed "approximate, relative-score" Monte-Carlo rigid-body search
 (`snaclex/docking.py`; README explains Vina/RDKit were avoided for clean
 zero-dependency Windows installs).
 
-- [ ] **Benchmark harness** (can be stdlib + checked-in test structures): measure
-  the *current* docker before changing it — Top-1 RMSD ≤ 2 Å and median RMSD on
-  a small redock set. `docking.rmsd_to_reference` already exists and `/api/dock`
-  already computes redock RMSD when the same ligand is crystallized. Formalize
-  this into a scriptable benchmark with a results table.
-  - Datasets from the audit: PoseBusters (pose validity), CrossDocked2020
-    (redock/cross-dock), PDBbind/BindingDB (affinity-linked), LigASite (pocket
-    sites).
+- [x] **Benchmark harness** (`snaclex/benchmark.py`, `python -m snaclex.benchmark`):
+  self-docks each crystallographic ligand back into its receptor and reports
+  Top-1 RMSD ≤ 2 Å + median/mean. Dependency-free, runs on local PDB files or
+  fetched IDs, writes a results JSON; `provenance.docking_benchmark` surfaces a
+  committed `benchmark_results.json` in the docking methods block. Metrics are
+  unit-tested.
+  - Datasets from the audit (point the harness at them): PoseBusters (pose
+    validity), CrossDocked2020 (redock/cross-dock), PDBbind/BindingDB
+    (affinity-linked), LigASite (pocket sites).
 - [ ] **Virtual-screening metrics** — EF1%, BEDROC, AUROC on a curated
-  target/decoy set for `/api/screen`.
+  target/decoy set for screening (same `summarize` pattern).
 - [ ] **Optional Vina/GNINA track** — env-gated: if AutoDock Vina (and optionally
   GNINA reranking) + Meeko prep are installed, expose them as an *upgraded*
   docking mode selectable in the UI, benchmarked head-to-head against the
   built-in docker. The pure-Python docker remains the dependency-free default.
+  _Cannot be built/run here (needs those engines + RDKit/Meeko); the harness is
+  ready to score it._
 
 ---
 

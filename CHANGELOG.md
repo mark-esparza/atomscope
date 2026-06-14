@@ -5,6 +5,20 @@ All notable changes to SnaCleX are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Docking rigor (Phase 4, partial)
+- **Redocking benchmark harness** (`snaclex/benchmark.py` + `python -m
+  snaclex.benchmark`) — self-docks each crystallographic ligand back into its
+  receptor and reports pose-recovery metrics (top-1 RMSD ≤ 2 Å, median/mean).
+  Dependency-free, runs on local PDB files or fetched IDs; scales to
+  PoseBusters/CrossDocked/PDBbind. This is the audit's "measure the docker
+  before changing it" step.
+- **Benchmark metadata in the methods block** (the deferred Phase 2 item) — if
+  `benchmark_results.json` is committed, every docking result links to the
+  method's last measured numbers (`provenance.docking_benchmark`).
+- _Deferred:_ the optional AutoDock Vina / GNINA upgrade track (needs those
+  engines + RDKit/Meeko installed) — out of scope for the zero-dependency
+  default; the same `summarize` will benchmark it head-to-head once present.
+
 ### Performance & scaling (Phase 3)
 - **Async job queue** (`snaclex/jobs.py`) — docking and batch screening now run
   on a bounded `ThreadPoolExecutor` via `POST /api/jobs` → poll
@@ -55,7 +69,7 @@ All notable changes to SnaCleX are documented here. This project adheres to
 - **Privacy & Terms pages** (`web/privacy.html`, `web/terms.html`) linked from a
   new site footer: no accounts/cookies/trackers, what's collected, third-party
   data sources, retention, and the research-only disclaimer.
-- **Test suite** (`tests/`) — 91 stdlib `unittest` cases covering the
+- **Test suite** (`tests/`) — 100 stdlib `unittest` cases covering the
   pure-compute core (`pdbparse`, `interactions`, `docking`, `pockets`,
   `report`) plus the PubChem/RCSB helpers. Runs fully offline; the HTTP fetch
   layer (`http_util`) is exercised via a mock seam (retry/backoff, fast-fail on
@@ -68,8 +82,8 @@ All notable changes to SnaCleX are documented here. This project adheres to
   mapped to the actual codebase and the project's zero-dependency philosophy.
 
 _This covers Phase 0 (engineering hygiene), Phase 1 (security & privacy
-baseline), Phase 2 (provenance & structured export), and Phase 3 (async jobs &
-caching) of the roadmap._
+baseline), Phase 2 (provenance & structured export), Phase 3 (async jobs & caching), and
+Phase 4 (docking benchmark harness) of the roadmap._
 
 ## [0.1.0]
 

@@ -13,8 +13,13 @@ particular structure), which keeps them trivially unit-testable.
 
 from __future__ import annotations
 
+import json
+import os
+
 from . import __version__
 from . import evolution, pockets
+
+_BENCH_PATH = os.path.join(os.path.dirname(__file__), os.pardir, "benchmark_results.json")
 
 _RESEARCH_DISCLAIMER = (
     "Research-only. A heuristic computed from a single static structure (and, "
@@ -26,6 +31,32 @@ _RESEARCH_DISCLAIMER = (
 
 def tool() -> str:
     return f"SnaCleX v{__version__}"
+
+
+def docking_benchmark(path=None):
+    """Return the latest committed docking-benchmark summary, or None.
+
+    Populated by committing the output of ``python -m snaclex.benchmark`` to
+    ``benchmark_results.json`` at the repo root, so every docking result can
+    link to the method's last measured pose-recovery numbers.
+    """
+    try:
+        with open(path or _BENCH_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    s = data.get("summary") or {}
+    return {
+        "last_benchmark_utc": data.get("run_utc"),
+        "datasets": data.get("datasets"),
+        "n_cases": s.get("n_cases"),
+        "top1_success_rate": s.get("top1_success_rate"),
+        "median_rmsd_A": s.get("median_rmsd_A"),
+        "note": (
+            "Self-docking RMSD recovery (nearest-atom proxy); sub-2 Å counts as "
+            "the crystallographic pose recovered."
+        ),
+    }
 
 
 def pocket_methods() -> dict:
