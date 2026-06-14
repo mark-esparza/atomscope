@@ -5,6 +5,15 @@ All notable changes to SnaCleX are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed
+- **Product positioning** — reframed the tagline, page title/description, and
+  README as *"a reproducible, browser-based structural-biology workbench"* for
+  interaction analysis, pocket prioritization, conservation-guided
+  interpretation, and exploratory docking. Explicitly positioned as an
+  interpretation workbench, **not** a full drug-discovery platform, with a
+  "Where it fits" comparison (vs. RCSB viewing, command-line docking, basic
+  viewers, and black-box AI docking demos).
+
 ### Testing & CI
 - **Browser end-to-end smoke test** (`e2e/`, Playwright) — boots the real server
   and drives Chromium through load → pick a bound molecule → interactions, and

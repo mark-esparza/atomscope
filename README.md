@@ -1,16 +1,34 @@
 # SnaCleX
 
-**Single-protein structure & ligand interaction analyzer — down to the atom.**
+**A reproducible, browser-based structural-biology workbench** for fast
+protein–ligand interaction analysis, pocket prioritization, conservation-guided
+interpretation, and exploratory docking.
 
-A research-only, dependency-free web tool. Load any experimental structure from
-the **RCSB Protein Data Bank**, pick a bound molecule (drug, chemical, ion, or
-metal), and SnaCleX computes and visualizes exactly how that molecule contacts
-the protein at the atomic level — hydrogen bonds, hydrophobic packing, salt
-bridges, metal coordination, and aromatic contacts — then cross-references the
-chemical against **PubChem** and **ChEMBL**.
+Load any experimental structure from the **RCSB Protein Data Bank** (or upload
+your own PDB/mmCIF), pick a bound molecule, and SnaCleX profiles every atomic
+contact — hydrogen bonds, hydrophobic packing, salt bridges, metal coordination,
+aromatic contacts — detects and ranks pockets, scores residues by evolutionary
+conservation, and docks **PubChem** chemicals into a chosen site, cross-referenced
+against **ChEMBL**. Every result carries the method, parameters, and caveats
+behind it, and exports to JSON/CSV/PDB.
 
-> Research-only. Interactions are geometric heuristics computed from experimental
-> coordinates (no explicit hydrogens, no energy minimization). Not for clinical use.
+> Research-only and exploratory. Interactions and docking are geometric/empirical
+> heuristics from a single static structure (no explicit hydrogens, no energy
+> minimization) — not validated affinities or clinical guidance. SnaCleX is an
+> interpretation workbench, **not** a full drug-discovery pipeline.
+
+## Where it fits
+
+- **More integrated** than RCSB structure viewing alone — lookup, interactions,
+  pockets, conservation, docking, and reporting in one session.
+- **Easier** than command-line docking — nothing to install, no receptor-prep
+  scripts; a real 3D conformer is placed and profiled in the browser.
+- **More research-aware** than a basic molecule viewer — pocket druggability,
+  conservation, and binding hypotheses, not just 3D.
+- **More transparent** than black-box AI docking demos — every result exposes its
+  method, parameters, random seed, and limitations (and lets you export them).
+- **Focused on interpretation, provenance, and pocket-level reasoning** — not on
+  throughput or affinity prediction.
 
 > **Copyright © 2026 Mark Esparza. All rights reserved.** SnaCleX is proprietary
 > software — see [LICENSE](LICENSE). No license to use, copy, modify, or
